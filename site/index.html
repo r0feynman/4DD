@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4DD 개발론</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: 한 줄 세로 흐름. 스프린트 단계 = 번호가 있는 레인, 각 레인 안에 노드 칩. 방법론별 색으로 필터 */
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --fg: #1b2330;
+  --muted: #5d6878;
+  --line: #d8dee8;
+  --sdd: #3a5ccc;  --sdd-bg: #e7ecfb;
+  --bdd: #0f8a6b;  --bdd-bg: #e1f4ee;
+  --tdd: #c4452c;  --tdd-bg: #fbe8e3;
+  --scrum: #6b5bb5; --scrum-bg: #eeebf8;
+  --fig: #b02f78;  --fig-bg: #f9e4ef;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151c; --surface: #1a2029; --fg: #e6ebf2; --muted: #9aa5b5; --line: #2c3542;
+  --sdd: #8aa4ff; --sdd-bg: #1e2846;
+  --bdd: #4fd1ad; --bdd-bg: #14332b;
+  --tdd: #ff8c73; --tdd-bg: #3a1f19;
+  --scrum: #b3a6f2; --scrum-bg: #29243f;
+  --fig: #f27fbf; --fig-bg: #3d1a2e;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #1a2029; --fg: #e6ebf2; --muted: #9aa5b5; --line: #2c3542;
+  --sdd: #8aa4ff; --sdd-bg: #1e2846;
+  --bdd: #4fd1ad; --bdd-bg: #14332b;
+  --tdd: #ff8c73; --tdd-bg: #3a1f19;
+  --scrum: #b3a6f2; --scrum-bg: #29243f;
+  --fig: #f27fbf; --fig-bg: #3d1a2e;
+  color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 920px; margin: 0 auto; padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 48px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.3; }
+h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 21px; font-weight: 700; }
+h3 { font-size: 16px; font-weight: 700; }
+p { margin: 0; max-width: 65ch; }
+.lead { color: var(--muted); font-size: 16px; }
+header { display: flex; flex-direction: column; gap: 12px; }
+section { display: flex; flex-direction: column; gap: 18px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+
+/* 3 layers */
+.layers { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.layer { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 8px; border-top: 4px solid var(--c); }
+.layer .tag { font-family: var(--font-mono); font-weight: 500; color: var(--c); font-size: 13px; letter-spacing: 0.04em; }
+.layer .q { font-weight: 700; }
+.layer .out { color: var(--muted); font-size: 13.5px; }
+.c-sdd { --c: var(--sdd); --cb: var(--sdd-bg); }
+.c-bdd { --c: var(--bdd); --cb: var(--bdd-bg); }
+.c-tdd { --c: var(--tdd); --cb: var(--tdd-bg); }
+.c-scrum { --c: var(--scrum); --cb: var(--scrum-bg); }
+.c-fig { --c: var(--fig); --cb: var(--fig-bg); }
+.gwt { font-family: var(--font-mono); font-weight: 500; color: var(--bdd); white-space: nowrap; }
+.callout { background: var(--fig-bg); border-radius: 10px; padding: 14px 16px; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.callout b { color: var(--fig); }
+
+/* filter */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters span { color: var(--muted); font-size: 13px; margin-right: 4px; }
+.chip { font: inherit; font-size: 13px; font-weight: 500; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--cb, var(--fg)); border-color: var(--c, var(--fg)); color: var(--c, var(--bg)); }
+.chip:focus-visible { outline: 2px solid var(--sdd); outline-offset: 2px; }
+
+/* flow */
+.flow { display: flex; flex-direction: column; gap: 0; }
+.stage { display: grid; grid-template-columns: 44px minmax(0,1fr); gap: 16px; }
+.rail { display: flex; flex-direction: column; align-items: center; }
+.num { width: 36px; height: 36px; border-radius: 50%; background: var(--fg); color: var(--bg); display: grid; place-items: center; font-family: var(--font-mono); font-weight: 500; flex: none; }
+.rail::after { content: ""; flex: 1; width: 2px; background: var(--line); margin-block: 6px; }
+.stage:last-child .rail::after { display: none; }
+.stage-body { padding-bottom: 28px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.stage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding-top: 5px; }
+.stage-head .who { color: var(--muted); font-size: 13px; }
+.nodes { display: flex; flex-direction: column; gap: 6px; }
+.node { display: grid; grid-template-columns: 46px 52px minmax(0,1fr); gap: 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 6px; padding: 9px 12px; transition: opacity .2s; }
+.node .id { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding-top: 2px; }
+.node .m { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; color: var(--c); background: var(--cb); border-radius: 4px; text-align: center; padding: 2px 0; }
+.node .t b { font-weight: 500; }
+.node .t small { display: block; color: var(--muted); font-size: 13px; }
+.node.decision .t b::before { content: "◇ "; color: var(--c); }
+.loop { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; padding: 8px 12px; }
+.loop b { color: var(--fg); font-weight: 500; }
+.flow.filtering .node.dim { opacity: 0.25; }
+.back { font-size: 13.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; padding-left: 60px; }
+
+/* tables */
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+th { font-size: 12px; letter-spacing: 0.05em; color: var(--muted); font-weight: 500; }
+td.id { font-family: var(--font-mono); color: var(--muted); white-space: nowrap; }
+
+.rules { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.rule { display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.rule p { color: var(--muted); font-size: 14px; }
+
+pre.tree { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.7; }
+pre.tree .cm { color: var(--muted); }
+pre.tree .s { color: var(--sdd); } pre.tree .b { color: var(--bdd); } pre.tree .f { color: var(--fig); }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+summary { cursor: pointer; font-weight: 500; }
+.tbl .mermaid { margin: 0; padding: 16px; min-width: 640px; background: transparent; }
+
+@media (max-width: 640px) {
+  .layers, .rules { grid-template-columns: 1fr; }
+  h1 { font-size: 25px; }
+  .stage { grid-template-columns: 34px minmax(0,1fr); gap: 10px; }
+  .num { width: 30px; height: 30px; font-size: 13px; }
+  .node { grid-template-columns: 40px minmax(0,1fr); }
+  .node .m { grid-column: 1; grid-row: 2; }
+  .node .t { grid-column: 2; grid-row: 1 / span 2; }
+  .back { padding-left: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .node { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>4DD 개발론</h1>
+    <p class="lead">4DD는 네 가지 주도 개발(4 Driven Development)을 스크럼 스프린트 안에서 함께 돌리는 앱·웹 개발 방법입니다. 스펙 문서로 무엇을 만들지 정하고, 시나리오와 Figma 화면으로 동작을 정의하고, 단위 테스트로 코드를 확인합니다.</p>
+    <div class="filters" aria-label="4DD를 이루는 네 가지 D">
+      <span class="chip c-sdd" aria-pressed="true">Spec · SDD</span>
+      <span class="chip c-bdd" aria-pressed="true">Behavior · BDD</span>
+      <span class="chip c-fig" aria-pressed="true">Design · Figma</span>
+      <span class="chip c-tdd" aria-pressed="true">Test · TDD</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>세 방법의 역할</h2>
+    <div class="layers">
+      <div class="layer c-sdd">
+        <div class="tag">SDD · 스펙 주도</div>
+        <div class="q">무엇을, 왜, 어떤 구조로 만드나</div>
+        <div class="out">산출물: <code>spec.md</code>, <code>design.md</code>, <code>tasks.md</code></div>
+      </div>
+      <div class="layer c-bdd">
+        <div class="tag">BDD · 행위 주도</div>
+        <div class="q">사용자 입장에서 어떻게 동작해야 하나</div>
+        <div class="out">산출물: Given-When-Then 시나리오, Figma 화면 흐름, 인수 테스트</div>
+      </div>
+      <div class="layer c-tdd">
+        <div class="tag">TDD · 테스트 주도</div>
+        <div class="q">코드 단위로 맞게 동작하나</div>
+        <div class="out">산출물: 단위 테스트 (Red → Green → Refactor)</div>
+      </div>
+    </div>
+    <p class="lead">스펙에서 시나리오가 나오고, 시나리오를 통과시키기 위해 단위 테스트를 반복합니다. 위에서 아래로 갈수록 범위가 좁아집니다.</p>
+  </section>
+
+  <section>
+    <h2>BDD를 Figma 화면으로</h2>
+    <p>시나리오의 Given-When-Then은 화면 흐름과 그대로 대응합니다. 시나리오 하나를 Figma 프레임 흐름 하나와 짝지으면, 기획자와 고객이 문장 대신 실제로 움직이는 화면을 보고 합의할 수 있습니다.</p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>BDD</th><th>Figma</th><th>예시 (비밀번호 5회 틀림)</th></tr></thead>
+        <tbody>
+          <tr><td><span class="gwt">Given</span> 상황</td><td>시작 화면 프레임</td><td><code>Login/Default</code> 로그인 화면</td></tr>
+          <tr><td><span class="gwt">When</span> 행동</td><td>프로토타입 인터랙션</td><td>비밀번호 입력 후 로그인 버튼 클릭 (5회)</td></tr>
+          <tr><td><span class="gwt">Then</span> 결과</td><td>도착 화면 프레임</td><td><code>Login/Locked</code> 잠금 안내 화면</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout c-fig">
+      <div><b>텍스트 시나리오가 기준입니다.</b> Figma는 시나리오를 대체하지 않고 함께 씁니다. "10분간 잠금", 권한, 데이터 검증처럼 화면에 드러나지 않는 규칙은 텍스트 시나리오에만 남기 때문입니다.</div>
+      <div><b>성공 화면만 그리지 않습니다.</b> 실패, 빈 상태, 로딩, 네트워크 오류 화면도 시나리오마다 같이 만듭니다.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>스프린트 절차</h2>
+    <div class="filters" role="group" aria-label="방법론으로 강조">
+      <span>강조해서 보기</span>
+      <button class="chip" id="f-all" data-f="all" aria-pressed="true">전체</button>
+      <button class="chip c-sdd" id="f-sdd" data-f="sdd" aria-pressed="false">SDD</button>
+      <button class="chip c-bdd" id="f-bdd" data-f="bdd" aria-pressed="false">BDD</button>
+      <button class="chip c-tdd" id="f-tdd" data-f="tdd" aria-pressed="false">TDD</button>
+      <button class="chip c-fig" id="f-fig" data-f="fig" aria-pressed="false">Figma</button>
+      <button class="chip c-scrum" id="f-scrum" data-f="scrum" aria-pressed="false">스크럼</button>
+    </div>
+
+    <div class="flow" id="flow">
+      <div class="stage">
+        <div class="rail"><div class="num">0</div></div>
+        <div class="stage-body">
+          <div class="stage-head"><h3>백로그 정리</h3><span class="who">PO · 팀</span></div>
+          <div class="nodes">
+            <div class="node c-scrum" data-m="scrum"><span class="id">N01</span><span class="m">스크럼</span><span class="t"><b>사용자 스토리 작성</b></span></div>
+            <div class="node c-sdd" data-m="sdd"><span class="id">N02</span><span class="m">SDD</span><span class="t"><b>요구사항 스펙 작성</b><small><code>spec.md</code> · 목적, 범위, 제약</small></span></div>
+            <div class="node c-bdd" data-m="bdd"><span class="id">N03</span><span class="m">BDD</span><span class="t"><b>시나리오 작성</b><small>Given-When-Then, 인수 조건이 됨</small></span></div>
+            <div class="node c-fig" data-m="fig"><span class="id">N03F</span><span class="m">Figma</span><span class="t"><b>시나리오별 화면 흐름 프로토타입</b><small>Given·Then 프레임과 When 인터랙션 연결 · 실패, 빈 상태, 로딩 화면 포함 · 프레임 링크를 <code>.feature</code>에 기록</small></span></div>
+            <div class="node c-sdd decision" data-m="sdd"><span class="id">N04</span><span class="m">SDD</span><span class="t"><b>스펙과 화면 리뷰 및 승인</b><small>스펙 수정 → N02 · 화면 수정 → N03F</small></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><div class="num">1</div></div>
+        <div class="stage-body">
+          <div class="stage-head"><h3>스프린트 플래닝</h3><span class="who">팀 전체</span></div>
+          <div class="nodes">
+            <div class="node c-scrum" data-m="scrum"><span class="id">N11</span><span class="m">스크럼</span><span class="t"><b>스프린트 목표 설정</b></span></div>
+            <div class="node c-scrum decision" data-m="scrum"><span class="id">N12</span><span class="m">스크럼</span><span class="t"><b>스펙, 시나리오, 화면이 준비됐나?</b><small>아니오 → N01로 돌아감</small></span></div>
+            <div class="node c-sdd" data-m="sdd"><span class="id">N13</span><span class="m">SDD</span><span class="t"><b>설계 스펙 작성</b><small><code>design.md</code> · 아키텍처, API, 데이터 모델</small></span></div>
+            <div class="node c-sdd" data-m="sdd"><span class="id">N14</span><span class="m">SDD</span><span class="t"><b>작업 분해</b><small><code>tasks.md</code></small></span></div>
+            <div class="node c-scrum" data-m="scrum"><span class="id">N15</span><span class="m">스크럼</span><span class="t"><b>스프린트 백로그 확정</b></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><div class="num">2</div></div>
+        <div class="stage-body">
+          <div class="stage-head"><h3>개발</h3><span class="who">개발팀 · 1~4주</span></div>
+          <div class="nodes">
+            <div class="node c-sdd" data-m="sdd"><span class="id">N21</span><span class="m">SDD</span><span class="t"><b><code>tasks.md</code>에서 작업 하나 선택</b></span></div>
+            <div class="node c-bdd" data-m="bdd"><span class="id">N22</span><span class="m">BDD</span><span class="t"><b>인수 테스트 작성</b><small>Playwright 같은 E2E 도구로 Figma 흐름을 그대로 따라감 · 처음에는 실패하는 상태</small></span></div>
+            <div class="node c-tdd" data-m="tdd"><span class="id">N23</span><span class="m">TDD</span><span class="t"><b>Red · 실패하는 단위 테스트 작성</b></span></div>
+            <div class="node c-tdd" data-m="tdd"><span class="id">N24</span><span class="m">TDD</span><span class="t"><b>Green · 테스트가 통과하게 구현</b></span></div>
+            <div class="node c-tdd" data-m="tdd"><span class="id">N25</span><span class="m">TDD</span><span class="t"><b>Refactor · 코드 정리</b></span></div>
+            <div class="node c-bdd decision" data-m="bdd"><span class="id">N26</span><span class="m">BDD</span><span class="t"><b>인수 테스트 통과?</b><small>아니오 → N23</small></span></div>
+            <div class="node c-fig decision" data-m="fig"><span class="id">N26F</span><span class="m">Figma</span><span class="t"><b>화면이 Figma 프레임과 일치?</b><small>스크린샷 비교 테스트 · 아니오 → N23 · 디자인을 바꿔야 하면 N03F</small></span></div>
+            <div class="node c-sdd decision" data-m="sdd"><span class="id">N27</span><span class="m">SDD</span><span class="t"><b>설계 스펙과 일치?</b><small>아니오 → N23 · 스펙을 바꿔야 하면 N13</small></span></div>
+            <div class="node c-scrum decision" data-m="scrum"><span class="id">N28</span><span class="m">스크럼</span><span class="t"><b>DoD 충족?</b><small>전체 테스트, CI, Figma 일치 · 아니오 → N23</small></span></div>
+            <div class="node c-sdd" data-m="sdd"><span class="id">N29</span><span class="m">SDD</span><span class="t"><b>작업 완료 체크</b><small><code>tasks.md</code> 갱신 · 남은 작업이 있으면 N21</small></span></div>
+            <div class="loop"><b>데일리 스크럼 (N2D, 매일 15분)</b> · 어떤 작업과 시나리오가 통과했고, 어디서 막혔는지 공유합니다.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><div class="num">3</div></div>
+        <div class="stage-body">
+          <div class="stage-head"><h3>스프린트 리뷰</h3><span class="who">PO · 이해관계자</span></div>
+          <div class="nodes">
+            <div class="node c-bdd" data-m="bdd"><span class="id">N31</span><span class="m">BDD</span><span class="t"><b>통과한 시나리오 기준으로 시연</b></span></div>
+            <div class="node c-fig" data-m="fig"><span class="id">N31F</span><span class="m">Figma</span><span class="t"><b>실제 화면과 프로토타입 나란히 비교</b><small>달라진 부분은 의도한 변경인지 확인</small></span></div>
+            <div class="node c-sdd" data-m="sdd"><span class="id">N32</span><span class="m">SDD</span><span class="t"><b>결과를 스펙과 대조해 검증</b></span></div>
+            <div class="node c-scrum" data-m="scrum"><span class="id">N33</span><span class="m">스크럼</span><span class="t"><b>이해관계자 피드백</b><small>스펙 수정이나 새 요구사항 → N02 · 화면 수정 → N03F</small></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><div class="num">4</div></div>
+        <div class="stage-body">
+          <div class="stage-head"><h3>회고</h3><span class="who">팀 전체</span></div>
+          <div class="nodes">
+            <div class="node c-scrum" data-m="scrum"><span class="id">N41</span><span class="m">스크럼</span><span class="t"><b>잘된 점과 아쉬운 점</b></span></div>
+            <div class="node c-sdd" data-m="sdd"><span class="id">N42</span><span class="m">SDD</span><span class="t"><b>스펙과 화면 품질 점검</b><small>빠졌거나 모호했던 부분, 그리지 않았던 예외 화면</small></span></div>
+            <div class="node c-tdd" data-m="tdd"><span class="id">N43</span><span class="m">TDD</span><span class="t"><b>테스트 지표 점검</b><small>커버리지, 버그 수 추이</small></span></div>
+            <div class="node c-scrum" data-m="scrum"><span class="id">N44</span><span class="m">스크럼</span><span class="t"><b>개선 항목 도출</b><small>다음 스프린트의 N11로 이어짐</small></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="back">↺ N44 다음에는 새 스프린트의 플래닝(N11)으로 돌아갑니다.</div>
+  </section>
+
+  <section>
+    <h2>되돌아가는 경로</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>지점</th><th>조건</th><th>돌아가는 곳</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td class="id">N04</td><td>스펙·화면 미승인</td><td class="id">N02 / N03F</td><td>스펙이나 프로토타입을 고쳐서 다시 리뷰</td></tr>
+          <tr><td class="id">N12</td><td>스펙·시나리오 없음</td><td class="id">N01</td><td>준비 안 된 스토리는 스프린트에 넣지 않음</td></tr>
+          <tr><td class="id">N26</td><td>인수 테스트 실패</td><td class="id">N23</td><td>TDD 반복</td></tr>
+          <tr><td class="id">N26F</td><td>Figma와 불일치</td><td class="id">N23 / N03F</td><td>화면을 고치거나, 디자인을 바꿔야 하면 프로토타입으로</td></tr>
+          <tr><td class="id">N27</td><td>설계와 불일치</td><td class="id">N23 / N13</td><td>코드를 고치거나, 스펙을 바꿔야 하면 설계로</td></tr>
+          <tr><td class="id">N28</td><td>DoD 미충족</td><td class="id">N23</td><td>완료 기준을 채울 때까지 작업</td></tr>
+          <tr><td class="id">N33</td><td>피드백</td><td class="id">N02 / N03F</td><td>스펙이나 화면을 갱신하고 새 요구를 백로그로</td></tr>
+          <tr><td class="id">N44</td><td>회고 끝</td><td class="id">N11</td><td>다음 스프린트 시작</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>지켜야 할 규칙</h2>
+    <div class="rules">
+      <div class="rule"><h3>스펙이 기준</h3><p>코드와 스펙이 다르면 둘 중 하나를 고칩니다. 둘이 어긋난 채로 두지 않습니다.</p></div>
+      <div class="rule"><h3>스펙은 계속 갱신</h3><p>리뷰에서 나온 피드백은 <code>spec.md</code>에 반영합니다. 스펙은 끝까지 살아 있는 문서입니다.</p></div>
+      <div class="rule"><h3>Figma도 스펙의 일부</h3><p>디자인이 바뀌면 시나리오와 인수 테스트도 같은 스프린트 안에서 함께 고칩니다. 화면과 시나리오가 어긋난 채로 두지 않습니다.</p></div>
+      <div class="rule"><h3>DoD에 네 가지 모두</h3><p>시나리오 전부 통과, 새 코드는 단위 테스트 포함, CI 통과, 화면이 Figma 프레임과 일치. 넷 다 충족해야 완료입니다.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>폴더 구조 예시</h2>
+<pre class="tree">specs/
+  login/
+    <span class="s">spec.md</span>        <span class="cm"># 요구사항 (SDD)</span>
+    <span class="s">design.md</span>      <span class="cm"># 설계 (SDD)</span>
+    <span class="s">tasks.md</span>       <span class="cm"># 작업 목록 (SDD)</span>
+    <span class="b">login.feature</span>  <span class="cm"># 시나리오 (BDD) + Figma 프레임 링크</span>
+src/
+tests/
+  unit/            <span class="cm"># 단위 테스트 (TDD)</span>
+  acceptance/      <span class="cm"># 인수 테스트 (BDD, E2E)</span>
+  <span class="f">visual/</span>          <span class="cm"># Figma 프레임과 스크린샷 비교</span></pre>
+<p>시나리오 파일에는 프레임 링크를 주석으로 남겨 둡니다.</p>
+<pre class="tree"><span class="cm"># figma: https://figma.com/design/…?node-id=12-34</span>
+<span class="b">시나리오</span>: 비밀번호 5회 틀림
+  <span class="b">Given</span> 로그인 화면에서          <span class="cm"># 프레임: Login/Default</span>
+  <span class="b">When</span>  비밀번호를 5번 틀리면
+  <span class="b">Then</span>  잠금 안내가 보인다         <span class="cm"># 프레임: Login/Locked</span></pre>
+<p class="lead">Figma MCP를 연결하면 Claude가 프레임을 직접 읽고 시나리오와 화면 코드 초안을 만들 수 있습니다.</p>
+  </section>
+
+  <section>
+    <h2>4DD 스프린트 노드 맵</h2>
+    <p>스프린트 한 바퀴를 스테이지 다섯 개로 나누고, 각 스테이지 안에 노드를 배치했습니다. 노드 색은 방법론을, 마름모는 판단 노드를, 점선은 스펙이나 디자인을 바꿔야 할 때의 되돌림을 뜻합니다.</p>
+    <pre class="tree">스프린트 (한 바퀴, 1~4주)
+ └─ 스테이지 (Stage 0~4)
+     └─ 노드 (N01, N26F …)</pre>
+    <div class="filters" aria-label="노드 색 범례">
+      <span>범례</span>
+      <span class="chip c-sdd" aria-pressed="true">SDD</span>
+      <span class="chip c-bdd" aria-pressed="true">BDD</span>
+      <span class="chip c-fig" aria-pressed="true">Figma</span>
+      <span class="chip c-tdd" aria-pressed="true">TDD</span>
+      <span class="chip c-scrum" aria-pressed="true">스크럼</span>
+    </div>
+    <div class="tbl">
+<pre class="mermaid">
+flowchart TD
+  subgraph SPRINT["스프린트 1회 · 1~4주"]
+    direction TB
+    subgraph ST0["Stage 0 · 백로그 정리"]
+      N01["N01<br/>사용자 스토리"] --> N02["N02<br/>spec.md 작성"] --> N03["N03<br/>BDD 시나리오"] --> N03F["N03F<br/>Figma 화면 흐름"] --> N04{"N04<br/>스펙·화면 승인?"}
+      N04 -- 스펙 수정 --> N02
+      N04 -- 화면 수정 --> N03F
+    end
+    subgraph ST1["Stage 1 · 스프린트 플래닝"]
+      N11["N11<br/>목표 설정"] --> N12{"N12<br/>스펙·시나리오·화면<br/>준비됐나?"}
+      N12 -- 예 --> N13["N13<br/>design.md 작성"] --> N14["N14<br/>tasks.md 작업 분해"] --> N15["N15<br/>스프린트 백로그 확정"]
+    end
+    subgraph ST2["Stage 2 · 개발"]
+      N2D(["N2D<br/>데일리 스크럼"])
+      N21["N21<br/>작업 선택"] --> N22["N22<br/>인수 테스트 작성"] --> N23["N23<br/>Red"] --> N24["N24<br/>Green"] --> N25["N25<br/>Refactor"] --> N26{"N26<br/>인수 테스트 통과?"}
+      N26 -- 예 --> N26F{"N26F<br/>Figma 일치?"}
+      N26F -- 예 --> N27{"N27<br/>스펙 일치?"}
+      N27 -- 예 --> N28{"N28<br/>DoD 충족?"}
+      N28 -- 예 --> N29["N29<br/>tasks.md 갱신"]
+      N26 -- 아니오 --> N23
+      N26F -- 아니오 --> N23
+      N27 -- 아니오 --> N23
+      N28 -- 아니오 --> N23
+      N29 -- 남은 작업 --> N21
+      N2D -. 매일 .-> N21
+    end
+    subgraph ST3["Stage 3 · 스프린트 리뷰"]
+      N31["N31<br/>시나리오 기준 시연"] --> N31F["N31F<br/>Figma와 나란히 비교"] --> N32["N32<br/>스펙 대조 검증"] --> N33["N33<br/>이해관계자 피드백"]
+    end
+    subgraph ST4["Stage 4 · 회고"]
+      N41["N41<br/>잘된 점·아쉬운 점"] --> N42["N42<br/>스펙·화면 품질 점검"] --> N43["N43<br/>테스트 지표 점검"] --> N44["N44<br/>개선 항목 도출"]
+    end
+  end
+
+  N04 -- 승인 --> N11
+  N12 -- 아니오 --> N01
+  N15 --> N21
+  N29 -- 모두 완료 --> N31
+  N26F -. 디자인 변경 .-> N03F
+  N27 -. 스펙 변경 .-> N13
+  N33 -- 새 요구 --> N02
+  N33 -- 화면 수정 --> N03F
+  N33 --> N41
+  N44 -- 다음 스프린트 --> N11
+
+  classDef sdd fill:#e7ecfb,stroke:#3a5ccc,color:#1b2330,stroke-width:1.5px
+  classDef bdd fill:#e1f4ee,stroke:#0f8a6b,color:#1b2330,stroke-width:1.5px
+  classDef fig fill:#f9e4ef,stroke:#b02f78,color:#1b2330,stroke-width:1.5px
+  classDef tdd fill:#fbe8e3,stroke:#c4452c,color:#1b2330,stroke-width:1.5px
+  classDef scrum fill:#eeebf8,stroke:#6b5bb5,color:#1b2330,stroke-width:1.5px
+  class N02,N04,N13,N14,N21,N27,N29,N32,N42 sdd
+  class N03,N22,N26,N31 bdd
+  class N03F,N26F,N31F fig
+  class N23,N24,N25,N43 tdd
+  class N01,N11,N12,N15,N28,N2D,N33,N41,N44 scrum
+  style SPRINT fill:transparent,stroke:#8a94a6,stroke-width:2px,stroke-dasharray:6 4
+  style ST0 fill:transparent,stroke:#8a94a6
+  style ST1 fill:transparent,stroke:#8a94a6
+  style ST2 fill:transparent,stroke:#8a94a6
+  style ST3 fill:transparent,stroke:#8a94a6
+  style ST4 fill:transparent,stroke:#8a94a6
+</pre>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var chips = document.querySelectorAll('button.chip');
+  var flow = document.getElementById('flow');
+  var nodes = flow.querySelectorAll('.node');
+  chips.forEach(function (c) {
+    c.addEventListener('click', function () {
+      var f = c.dataset.f;
+      chips.forEach(function (x) { x.setAttribute('aria-pressed', x === c ? 'true' : 'false'); });
+      flow.classList.toggle('filtering', f !== 'all');
+      nodes.forEach(function (n) { n.classList.toggle('dim', f !== 'all' && n.dataset.m !== f); });
+    });
+  });
+})();
+</script>
+
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs"; mermaid.initialize({ startOnLoad: true });</script>
+</body>
+</html>
