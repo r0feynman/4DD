@@ -16,7 +16,7 @@
 
 ## 연결 방법
 
-1. `.feature` 파일에 프레임 링크를 주석으로 남깁니다 (`templates/specs/example/login.feature` 참고).
+1. `.feature` 파일에 프레임 링크를 주석으로 남깁니다 (`templates/specs/example/login.feature` 참고). 주석은 단계 바로 위에 따로 한 줄로 씁니다. Gherkin은 `#`로 시작하는 줄만 주석으로 보기 때문에, 단계 줄 끝에 붙인 `# 프레임: …`은 단계 문장의 일부가 되어 단계 정의와 맞지 않게 됩니다.
 2. 인수 테스트(N22)는 Playwright 같은 E2E 도구로 Figma 흐름을 그대로 따라갑니다.
 3. N26F에서 스크린샷 비교 테스트(`tests/visual/`)로 화면이 프레임과 같은지 확인합니다.
 4. Figma MCP를 연결하면 Claude가 프레임을 직접 읽고 시나리오와 화면 코드 초안을 만들 수 있습니다.
