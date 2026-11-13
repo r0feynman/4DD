@@ -53,6 +53,7 @@
 | [docs/nodes.md](docs/nodes.md) | 모든 노드의 스테이지, 방법론, 종류, 담당, 산출물, 다음 노드 |
 | [docs/glossary.md](docs/glossary.md) | 용어집: 스프린트, 스테이지, 노드, 노드 ID 규칙 등 |
 | [docs/figma-bdd.md](docs/figma-bdd.md) | BDD 시나리오와 Figma 프레임을 짝짓는 방법 |
+| [docs/harness-design.md](docs/harness-design.md) | (초안) 4DD를 Claude·Codex용 하네스로 만드는 설계: 상태 전달, 온톨로지, 에이전트 디자인 |
 | [templates/specs/example/](templates/specs/example/) | `spec.md`, `design.md`, `tasks.md`, `.feature` 예시 |
 | [site/index.html](site/index.html) | 한 페이지로 보는 4DD 개발론 (브라우저에서 열기) |
 
