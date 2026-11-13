@@ -54,9 +54,9 @@ header { display: flex; flex-direction: column; gap: 12px; }
 section { display: flex; flex-direction: column; gap: 18px; }
 code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
 
-/* 3 layers */
-.layers { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
-.layer { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 8px; border-top: 4px solid var(--c); }
+/* 4 layers */
+.layers { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+.layer { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 8px; border-top: 4px solid var(--c); word-break: keep-all; overflow-wrap: anywhere; }
 .layer .tag { font-family: var(--font-mono); font-weight: 500; color: var(--c); font-size: 13px; letter-spacing: 0.04em; }
 .layer .q { font-weight: 700; }
 .layer .out { color: var(--muted); font-size: 13.5px; }
@@ -118,6 +118,9 @@ details { background: var(--surface); border: 1px solid var(--line); border-radi
 summary { cursor: pointer; font-weight: 500; }
 .tbl .mermaid { margin: 0; padding: 16px; min-width: 640px; background: transparent; }
 
+@media (max-width: 860px) {
+  .layers { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
 @media (max-width: 640px) {
   .layers, .rules { grid-template-columns: 1fr; }
   h1 { font-size: 25px; }
@@ -146,7 +149,7 @@ summary { cursor: pointer; font-weight: 500; }
   </header>
 
   <section>
-    <h2>세 방법의 역할</h2>
+    <h2>네 가지 D의 역할</h2>
     <div class="layers">
       <div class="layer c-sdd">
         <div class="tag">SDD · 스펙 주도</div>
@@ -156,7 +159,12 @@ summary { cursor: pointer; font-weight: 500; }
       <div class="layer c-bdd">
         <div class="tag">BDD · 행위 주도</div>
         <div class="q">사용자 입장에서 어떻게 동작해야 하나</div>
-        <div class="out">산출물: Given-When-Then 시나리오, Figma 화면 흐름, 인수 테스트</div>
+        <div class="out">산출물: Given-When-Then 시나리오, 인수 테스트</div>
+      </div>
+      <div class="layer c-fig">
+        <div class="tag">Figma · 디자인 주도</div>
+        <div class="q">실제로 어떤 화면으로 보이나</div>
+        <div class="out">산출물: 시나리오별 화면 흐름 프로토타입</div>
       </div>
       <div class="layer c-tdd">
         <div class="tag">TDD · 테스트 주도</div>
@@ -164,7 +172,7 @@ summary { cursor: pointer; font-weight: 500; }
         <div class="out">산출물: 단위 테스트 (Red → Green → Refactor)</div>
       </div>
     </div>
-    <p class="lead">스펙에서 시나리오가 나오고, 시나리오를 통과시키기 위해 단위 테스트를 반복합니다. 위에서 아래로 갈수록 범위가 좁아집니다.</p>
+    <p class="lead">스펙에서 시나리오와 화면이 나오고, 시나리오를 통과시키기 위해 단위 테스트를 반복합니다. 위에서 아래로 갈수록 범위가 좁아집니다.</p>
   </section>
 
   <section>
@@ -318,12 +326,15 @@ tests/
   unit/            <span class="cm"># 단위 테스트 (TDD)</span>
   acceptance/      <span class="cm"># 인수 테스트 (BDD, E2E)</span>
   <span class="f">visual/</span>          <span class="cm"># Figma 프레임과 스크린샷 비교</span></pre>
-<p>시나리오 파일에는 프레임 링크를 주석으로 남겨 둡니다.</p>
-<pre class="tree"><span class="cm"># figma: https://figma.com/design/…?node-id=12-34</span>
+<p>시나리오 파일에는 프레임 링크를 주석으로 남겨 둡니다. 주석은 단계 바로 위에 따로 한 줄로 씁니다. 단계 줄 끝에 붙이면 Gherkin이 단계 문장의 일부로 읽습니다.</p>
+<pre class="tree"><span class="cm"># language: ko</span>
+<span class="cm"># figma: https://figma.com/design/…?node-id=12-34</span>
 <span class="b">시나리오</span>: 비밀번호 5회 틀림
-  <span class="b">Given</span> 로그인 화면에서          <span class="cm"># 프레임: Login/Default</span>
-  <span class="b">When</span>  비밀번호를 5번 틀리면
-  <span class="b">Then</span>  잠금 안내가 보인다         <span class="cm"># 프레임: Login/Locked</span></pre>
+  <span class="cm"># 프레임: Login/Default</span>
+  <span class="b">조건</span> 로그인 화면에 있고
+  <span class="b">만일</span> 비밀번호를 5번 틀리면
+  <span class="cm"># 프레임: Login/Locked</span>
+  <span class="b">그러면</span> 잠금 안내가 보인다</pre>
 <p class="lead">Figma MCP를 연결하면 Claude가 프레임을 직접 읽고 시나리오와 화면 코드 초안을 만들 수 있습니다.</p>
   </section>
 
