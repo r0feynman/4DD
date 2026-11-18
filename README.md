@@ -21,7 +21,7 @@
 
 | 스테이지 | 이름 | 하는 일 | 노드 |
 |---|---|---|---|
-| 0 | 백로그 정리 | 스토리 → `spec.md` → 시나리오 → Figma 화면 흐름 → 승인 | N01~N04 |
+| 0 | 백로그 정리 | (프로젝트 처음 한 번: 디자인 시스템) 스토리 → `spec.md` → 시나리오 → 와이어프레임 → Figma 화면 → 승인 | N00F, N01~N04 |
 | 1 | 스프린트 플래닝 | 목표 설정 → 준비 확인 → `design.md` → `tasks.md` | N11~N15 |
 | 2 | 개발 | 인수 테스트 → TDD 루프 → 인수·Figma·스펙·DoD 확인 | N21~N29, N2D |
 | 3 | 스프린트 리뷰 | 시나리오 기준 시연 → Figma 비교 → 스펙 대조 → 피드백 | N31~N33 |
@@ -53,7 +53,7 @@
 | [docs/nodes.md](docs/nodes.md) | 모든 노드의 스테이지, 방법론, 종류, 담당, 산출물, 다음 노드 |
 | [docs/glossary.md](docs/glossary.md) | 용어집: 스프린트, 스테이지, 노드, 노드 ID 규칙 등 |
 | [docs/figma-bdd.md](docs/figma-bdd.md) | BDD 시나리오와 Figma 프레임을 짝짓는 방법 |
-| [docs/harness-design.md](docs/harness-design.md) | 4DD를 Claude·Codex 어디서나 도는 하네스로 만드는 설계 (핵심 제안 승인, 일부 승인 대기) |
+| [docs/harness-design.md](docs/harness-design.md) | 4DD를 Claude·Codex 어디서나 도는 하네스로 만드는 설계 (승인된 결정과 열린 결정) |
 | [templates/specs/example/](templates/specs/example/) | `spec.md`, `design.md`, `tasks.md`, `.feature` 예시 |
 | [site/index.html](site/index.html) | 한 페이지로 보는 4DD 개발론 (브라우저에서 열기) |
 
