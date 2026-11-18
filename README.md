@@ -55,7 +55,12 @@
 | [docs/figma-bdd.md](docs/figma-bdd.md) | BDD 시나리오와 Figma 프레임을 짝짓는 방법 |
 | [docs/harness-design.md](docs/harness-design.md) | 4DD를 Claude·Codex 어디서나 도는 하네스로 만드는 설계 (승인된 결정과 열린 결정) |
 | [templates/specs/example/](templates/specs/example/) | `spec.md`, `design.md`, `tasks.md`, `.feature` 예시 |
+| [docs/changelog.md](docs/changelog.md) | 변경 기록 (최근 것부터) |
 | [site/index.html](site/index.html) | 한 페이지로 보는 4DD 개발론 (브라우저에서 열기) |
+
+### 두 형식
+
+이 문서들은 두 형식으로 유지합니다. 저장소 문서가 원본이고, 오너는 그림으로 정리한 아티팩트 [4DD 개발론](https://claude.ai/artifact/QvwmRXisABunc6DLTiaegf)으로 읽습니다. 아티팩트는 [docs-view/build.py](docs-view/build.py)가 저장소 문서로 만들어 내고, 둘이 어긋나지 않게 훅과 CI가 검사합니다. 자세한 규칙은 [CLAUDE.md](CLAUDE.md)에 있습니다.
 
 ## 프로젝트에 적용할 때 폴더 구조
 

@@ -1,0 +1,6 @@
+# 아티팩트 빌드 결과 (docs-view/build.py build 로 다시 만든다)
+docs-view/dist/
+# Claude 세션이 만드는 작업 공간과 개인 설정
+.claude/worktrees/
+.claude/settings.local.json
+__pycache__/

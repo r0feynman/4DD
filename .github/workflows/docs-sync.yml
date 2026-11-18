@@ -1,0 +1,15 @@
+name: docs-sync
+
+# 저장소 문서(원본)와 오너용 아티팩트 「4DD 개발론」이 어긋나지 않았는지 검사한다.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 문서 두 형식 동기화 검사
+        run: python3 docs-view/build.py check
