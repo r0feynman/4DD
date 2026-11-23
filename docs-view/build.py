@@ -218,7 +218,8 @@ body {{ margin: 0; }}
 
 # ---------------------------------------------------------------- 데이터
 
-def load_nodes():
+def load_nodes(plain=False):
+    """docs/nodes.md 표. plain=True면 이름을 HTML로 바꾸지 않는다 (검사는 markdown 모듈 없이 돌아야 한다)."""
     rows = tables(read("docs/nodes.md"))[0]
     nodes, stages = [], {}
     for r in rows:
@@ -229,7 +230,7 @@ def load_nodes():
         method = METHOD.get(r["방법론"])
         if not method:
             raise BuildError(f"모르는 방법론: {r['방법론']} ({r['ID']})")
-        nodes.append({"id": r["ID"], "stage": num, "name": inline(r["이름"]), "method": method, "kind": r["종류"], "out": r["산출물 · 다음 노드"]})
+        nodes.append({"id": r["ID"], "stage": num, "name": r["이름"] if plain else inline(r["이름"]), "method": method, "kind": r["종류"], "out": r["산출물 · 다음 노드"]})
     return nodes, stages
 
 
@@ -335,9 +336,9 @@ def map_model():
     return stages, labels, outs, conns, gates
 
 
-def nodemap_data():
+def nodemap_data(plain=False):
     """노드 맵(nodemap.js)에 넣을 데이터. docs/workflow.md 노드 맵 + docs/nodes.md + docs/glossary.md의 TDD 루프."""
-    nodes, _ = load_nodes()
+    nodes, _ = load_nodes(plain)
     by = {n["id"]: n for n in nodes}
     stages, labels, outs, conns, gates = map_model()
     data = {"stages": [], "nodes": {}, "edges": [], "gates": []}
@@ -368,7 +369,7 @@ def nodemap_data():
 def nodemap_problems():
     """노드 맵 그림이 원본과 맞는지: 굵은 선 = 앞으로 가는 경로, 스테이지 사이 연결, TDD 루프 위치."""
     try:
-        d = nodemap_data()
+        d = nodemap_data(plain=True)
     except BuildError as e:
         return [str(e)]
     out = []
