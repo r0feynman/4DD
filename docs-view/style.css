@@ -83,6 +83,121 @@ a.card:hover { border-color: var(--fg); }
 .card .t { font-weight: 700; }
 .card .d { color: var(--muted); font-size: 13.5px; }
 .card.top { border-top: 4px solid var(--c); }
+
+/* 노드 맵 (nodemap.js, 오너가 고른 시안 나): 위에 스프린트 고리, 아래에 고른 스테이지 하나 */
+:root { --human: #9a5b00; --human-bg: #fbefdc; --nm-faint: #eef1f6; --nm-ret: #44546a; --nm-loop-bg: #fdf3f0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --human: #f2b55c; --human-bg: #3a2a12; --nm-faint: #222a35; --nm-ret: #b4c0d0; --nm-loop-bg: #251916; } }
+:root[data-theme="dark"] { --human: #f2b55c; --human-bg: #3a2a12; --nm-faint: #222a35; --nm-ret: #b4c0d0; --nm-loop-bg: #251916; }
+.nm { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.nm [hidden] { display: none !important; }
+.nm button { font: inherit; color: inherit; }
+.nm button:focus-visible { outline: 2px solid var(--sdd); outline-offset: 2px; }
+.nm p { max-width: 72ch; }
+.nm-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; color: var(--muted);
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.nm-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.nm-lg-line { width: 26px; height: 4px; background: var(--fg); border-radius: 2px; }
+.nm-lg-dash { width: 26px; border-top: 2px dashed var(--muted); }
+.nm-lg-dot { width: 13px; height: 13px; border-radius: 50%; border: 3px solid var(--fg); background: var(--surface); }
+.nm-lg-dia { width: 11px; height: 11px; border: 3px solid var(--fg); background: var(--surface); transform: rotate(45deg); margin: 0 1px; }
+.nm-lg-box { width: 26px; height: 15px; border: 2px solid var(--tdd); background: var(--nm-loop-bg); border-radius: 5px; }
+.nm-hint { font-size: 13px; color: var(--muted); }
+.nm-hint b { color: var(--fg); font-weight: 500; }
+
+/* 스프린트 고리 */
+.nm-cyc { position: relative; }
+.nm-cyc svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.nm-ct { position: absolute; display: flex; flex-direction: column; justify-content: center; gap: 1px; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 12px; line-height: 1.4; }
+.nm-ct:hover { border-color: var(--muted); }
+.nm-ct[aria-pressed="true"] { border-color: var(--fg); box-shadow: 0 0 0 2px var(--fg); }
+.nm-ctn { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.nm-ct b { font-size: 15.5px; line-height: 1.25; }
+.nm-ctm { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.nm-ctdots { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 3px; }
+.nm-ctdots i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.nm-ctdots i.nm-dec { border-radius: 1px; transform: rotate(45deg) scale(.86); }
+.nm-ctdots i.nm-sidedot { background: transparent; border: 1.5px dashed var(--c); }
+.nm-cyc.nm-narrow .nm-ct { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 10px; padding: 6px 12px; }
+.nm-cyc.nm-narrow .nm-ctm { display: none; }
+.nm-cyc.nm-narrow .nm-ctdots { margin: 0; }
+.nm-pill { position: absolute; z-index: 1; transform: translate(-50%, -50%); font-size: 12px; font-weight: 500; line-height: 1.5;
+  background: var(--bg); border: 1.5px solid var(--fg); border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+.nm-pill-spr { border-style: dashed; }
+.nm-pill-v { writing-mode: vertical-rl; padding: 8px 0; }
+.nm-cross { display: grid; gap: 6px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 13px; }
+.nm-cross-t { font-weight: 700; font-size: 15px; }
+.nm-rl { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.nm-rl > span:first-child { color: var(--muted); }
+.nm-it { display: inline-flex; gap: 4px; align-items: baseline; }
+.nm-it em { font-style: normal; color: var(--muted); font-size: 12px; }
+
+/* 스테이지 세부 */
+.nm-map { position: relative; z-index: 0; --col: 120px; --gap: 14px; }
+.nm-map > svg.nm-ov { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 1; }
+.nm-sh { position: relative; z-index: 2; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 8px 0 6px calc(var(--col) + var(--gap)); }
+.nm-sn { font-family: var(--font-mono); font-size: 12px; font-weight: 600; background: var(--fg); color: var(--bg); border-radius: 5px; padding: 1px 7px; }
+.nm-st { font-size: 18px; font-weight: 700; }
+.nm-sm { font-size: 12.5px; color: var(--muted); }
+.nm-entry { position: relative; z-index: 2; padding: 0 0 4px calc(var(--col) + var(--gap)); }
+.nm-entry button { cursor: pointer; border: 1px dashed var(--muted); background: transparent; color: var(--muted); border-radius: 999px; padding: 1px 10px; font-size: 12.5px; }
+.nm-line { list-style: none; margin: 0; padding: 0; }
+.nm-row { display: grid; grid-template-columns: var(--col) minmax(0, 16.5rem) minmax(0, 1fr); column-gap: var(--gap); row-gap: 6px; align-items: start; padding: 5px 0; margin: 0; }
+.nm-dot { position: relative; z-index: 2; justify-self: end; margin: 12px 20px 0 0; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--surface); border: 3px solid var(--c); transition: opacity .15s; }
+.nm-dot.nm-dec { width: 15px; height: 15px; border-radius: 2px; transform: rotate(45deg); margin-top: 13px; }
+.nm-ncol { position: relative; z-index: 2; min-width: 0; }
+.nm-node { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; cursor: pointer; line-height: 1.5;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; transition: opacity .15s; }
+.nm-node:hover { border-color: var(--muted); }
+.nm-node b { font-family: var(--font-mono); font-weight: 600; font-size: 13.5px; color: var(--c); flex: none; }
+.nm-name { flex: 1; min-width: 0; }
+.nm-node em { font-style: normal; font-size: 11px; font-family: var(--font-mono); color: var(--c); background: var(--cb); border-radius: 4px; padding: 0 5px; flex: none; }
+.nm-aside { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; min-width: 0; padding-top: 2px; transition: opacity .15s; }
+.nm .nm-dt { width: auto; min-width: 0; border-collapse: separate; border-spacing: 0; font-size: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.nm .nm-dt th { text-align: left; font-weight: 500; font-size: 11.5px; letter-spacing: 0; color: var(--muted); padding: 4px 10px 3px; border: 0; }
+.nm .nm-dt td { padding: 4px 10px; border: 0; border-top: 1px solid var(--line); vertical-align: middle; }
+.nm .nm-dt td:first-child { white-space: nowrap; }
+.nm-go { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.nm-ret, .nm-up, .nm-spr, .nm-ref { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; border-radius: 6px; padding: 0 7px;
+  display: inline-flex; gap: 5px; align-items: baseline; white-space: nowrap; cursor: pointer; }
+.nm .nm-ret { color: var(--nm-ret); background: var(--surface); border: 1.5px dashed var(--nm-ret); }
+.nm .nm-up { color: var(--human); background: var(--human-bg); border: 1.5px dashed var(--human); }
+.nm .nm-spr { color: var(--bg); background: var(--fg); border: 1.5px solid var(--fg); }
+.nm .nm-ref { color: var(--fg); background: var(--nm-faint); border: 1px solid var(--line); }
+.nm-ret small, .nm-up small, .nm-spr small { font-family: var(--font-body); font-size: 11px; }
+.nm-backin { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.nm-side { display: grid; gap: 0; text-align: left; cursor: pointer; border: 1.5px dashed var(--c); border-radius: 10px; padding: 4px 10px;
+  background: var(--surface); line-height: 1.45; transition: opacity .15s; }
+.nm-side b { font-family: var(--font-mono); font-weight: 600; color: var(--c); font-size: 13px; }
+.nm-side b span { font-family: var(--font-body); font-weight: 500; color: var(--fg); }
+.nm-side small { color: var(--muted); font-size: 12px; }
+.nm-loop { position: relative; list-style: none; margin: 8px 0; padding: 8px 0 6px; }
+.nm-loop::before { content: ""; position: absolute; z-index: 0; inset: 0 0 0 4px; border: 2px solid var(--tdd); border-radius: 14px; background: var(--nm-loop-bg); }
+.nm-looptag { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline;
+  padding: 0 12px 2px calc(var(--col) + var(--gap)); font-size: 12.5px; color: var(--muted); }
+.nm-looptag b { color: var(--tdd); font-size: 14px; }
+.nm-gate { position: relative; z-index: 2; display: flex; align-items: center; gap: var(--gap); padding: 10px 0 4px; }
+.nm-pin { width: var(--col); flex: none; display: flex; justify-content: flex-end; padding-right: 23px; }
+.nm-pin i { width: 10px; height: 10px; background: var(--fg); border-radius: 50%; }
+.nm-gl { font-size: 13px; font-weight: 500; background: var(--fg); color: var(--bg) !important; border: 0; border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.nm-gl small { font-weight: 400; opacity: .8; }
+.nm-end .nm-gl { background: var(--surface); color: var(--fg) !important; border: 1.5px solid var(--fg); }
+.nm-relp { margin-top: 6px; padding: 8px 10px; border: 1.5px solid var(--fg); border-radius: 8px; background: var(--surface); font-size: 13px; display: grid; gap: 6px; }
+.nm-full { font-weight: 500; }
+.nm-full span { color: var(--muted); font-weight: 400; }
+.nm-relp .nm-rl > span:first-child { flex: none; width: 3.2em; }
+.nm-focusing .nm-row:not(.nm-rel) .nm-node, .nm-focusing .nm-row:not(.nm-rel) .nm-dot, .nm-focusing .nm-row:not(.nm-rel) .nm-aside,
+.nm-focusing .nm-side:not(.nm-rel) { opacity: .28; }
+.nm-row.nm-cur .nm-node, .nm-side.nm-cur { border-color: var(--fg); box-shadow: 0 0 0 1px var(--fg); }
+.nm-flash .nm-node { animation: nm-flash 1s ease-out 1; }
+@keyframes nm-flash { from { box-shadow: 0 0 0 5px var(--sdd-bg), 0 0 0 1px var(--fg); } }
+@media (prefers-reduced-motion: reduce) { .nm-flash .nm-node { animation: none; } .nm-dot, .nm-node, .nm-aside, .nm-side { transition: none; } }
+@media (max-width: 620px) {
+  .nm-map { --col: 84px; --gap: 10px; }
+  .nm-row { grid-template-columns: var(--col) minmax(0, 1fr); }
+  .nm-aside { grid-column: 2; }
+}
 /* @hub-end */
 
 /* 노드 칩 */

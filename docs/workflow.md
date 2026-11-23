@@ -13,24 +13,30 @@
 - 사각형: 작업 노드
 - 마름모: 판단 노드
 - 둥근 모양: 반복 노드 (N2D 데일리 스크럼)
-- 점선: 스펙이나 디자인을 바꿔야 해서 앞 스테이지로 돌아가는 경로, 그리고 프로젝트 처음에 한 번만 거치는 경로(N00F)
+- 스테이지 사이 화살표: Stage 0 → 1 → 2 → 3 → 4 진행 순서
+- 점선 화살표: 매일 반복(N2D), 프로젝트 처음에 한 번만 거치는 경로(N00F)
+- 점선 상자 `↩ N02`: 앞 노드로 돌아가는 되돌림. 긴 화살표를 거꾸로 그으면 그림 순서가 뒤섞여서, 돌아갈 곳을 표지로 적습니다. Stage 2의 TDD 반복(→ N23, N24, N21)만 화살표로 그립니다
 
 ```mermaid
-flowchart TD
+flowchart LR
   subgraph SPRINT["스프린트 1회 · 1~4주"]
-    direction TB
+    direction LR
     subgraph ST0["Stage 0 · 백로그 정리"]
+      direction TB
       N00F["N00F<br/>디자인 시스템<br/>(프로젝트당 1회)"]
       N01["N01<br/>사용자 스토리"] --> N02["N02<br/>spec.md 작성"] --> N03["N03<br/>BDD 시나리오"] --> N03W["N03W<br/>와이어프레임"] --> N03F["N03F<br/>Figma 화면 완성"] --> N04{"N04<br/>스펙·화면 승인?"}
       N00F -. 처음 한 번 .-> N03W
-      N04 -- 스펙 수정 --> N02
-      N04 -- 화면 수정 --> N03F
+      N04 -. 스펙 수정 .-> R04A(["↩ N02<br/>스펙으로"])
+      N04 -. 화면 수정 .-> R04B(["↩ N03F<br/>화면 완성으로"])
     end
     subgraph ST1["Stage 1 · 스프린트 플래닝"]
+      direction TB
       N11["N11<br/>목표 설정"] --> N12{"N12<br/>스펙·시나리오·화면<br/>준비됐나?"}
       N12 -- 예 --> N13["N13<br/>design.md 작성"] --> N14["N14<br/>tasks.md 작업 분해"] --> N15["N15<br/>스프린트 백로그 확정"]
+      N12 -. 아니오 .-> R12(["↩ N01<br/>스토리부터"])
     end
     subgraph ST2["Stage 2 · 개발"]
+      direction TB
       N2D(["N2D<br/>데일리 스크럼"])
       N21["N21<br/>작업 선택"] --> N22["N22<br/>인수 테스트 작성"] --> N23["N23<br/>Red"] --> N24["N24<br/>Green"] --> N25["N25<br/>Refactor"] --> N26{"N26<br/>인수 테스트 통과?"}
       N26 -- 예 --> N26F{"N26F<br/>Figma 일치?"}
@@ -44,36 +50,44 @@ flowchart TD
       N28 -- 아니오 --> N23
       N29 -- 남은 작업 --> N21
       N2D -. 매일 .-> N21
+      N26F -. 디자인 변경 .-> R26F(["↩ N03F<br/>화면 완성으로"])
+      N27 -. 스펙 변경 .-> R27(["↩ N13<br/>설계로"])
     end
     subgraph ST3["Stage 3 · 스프린트 리뷰"]
+      direction TB
       N31["N31<br/>시나리오 기준 시연"] --> N31F["N31F<br/>Figma와 나란히 비교"] --> N32["N32<br/>스펙 대조 검증"] --> N33["N33<br/>이해관계자 피드백"]
+      N33 -. 새 요구 .-> R33A(["↩ N02<br/>스펙으로"])
+      N33 -. 화면 수정 .-> R33B(["↩ N03F<br/>화면 완성으로"])
     end
     subgraph ST4["Stage 4 · 회고"]
+      direction TB
       N41["N41<br/>잘된 점·아쉬운 점"] --> N42["N42<br/>스펙·화면 품질 점검"] --> N43["N43<br/>테스트 지표 점검"] --> N44["N44<br/>개선 항목 도출"]
+      N44 -. 다음 스프린트 .-> R44(["↩ N01<br/>다음 스프린트"])
     end
+    ST0 -- N04 승인 --> ST1
+    ST1 -- N15 확정 --> ST2
+    ST2 -- N29 모두 완료 --> ST3
+    ST3 -- N33 끝 --> ST4
   end
-
-  N04 -- 승인 --> N11
-  N12 -- 아니오 --> N01
-  N15 --> N21
-  N29 -- 모두 완료 --> N31
-  N26F -. 디자인 변경 .-> N03F
-  N27 -. 스펙 변경 .-> N13
-  N33 -- 새 요구 --> N02
-  N33 -- 화면 수정 --> N03F
-  N33 --> N41
-  N44 -- 다음 스프린트 --> N11
 
   classDef sdd fill:#e7ecfb,stroke:#3a5ccc,color:#1b2330,stroke-width:1.5px
   classDef bdd fill:#e1f4ee,stroke:#0f8a6b,color:#1b2330,stroke-width:1.5px
   classDef fig fill:#f9e4ef,stroke:#b02f78,color:#1b2330,stroke-width:1.5px
   classDef tdd fill:#fbe8e3,stroke:#c4452c,color:#1b2330,stroke-width:1.5px
   classDef scrum fill:#eeebf8,stroke:#6b5bb5,color:#1b2330,stroke-width:1.5px
+  classDef back fill:#ffffff,stroke:#8a94a6,color:#5d6878,stroke-width:1px,stroke-dasharray:4 3
   class N02,N04,N13,N14,N21,N27,N29,N32,N42 sdd
   class N03,N22,N26,N31 bdd
   class N00F,N03W,N03F,N26F,N31F fig
   class N23,N24,N25,N43 tdd
   class N01,N11,N12,N15,N28,N2D,N33,N41,N44 scrum
+  class R04A,R04B,R12,R26F,R27,R33A,R33B,R44 back
+  style SPRINT fill:transparent,stroke:#8a94a6,stroke-width:2px,stroke-dasharray:6 4
+  style ST0 fill:transparent,stroke:#8a94a6
+  style ST1 fill:transparent,stroke:#8a94a6
+  style ST2 fill:transparent,stroke:#8a94a6
+  style ST3 fill:transparent,stroke:#8a94a6
+  style ST4 fill:transparent,stroke:#8a94a6
 ```
 
 색: 파랑 SDD · 초록 BDD · 분홍 Figma · 주황 TDD · 보라 스크럼
@@ -89,7 +103,7 @@ flowchart TD
 | N27 | 설계와 불일치 | N23 / N13 | 코드를 고치거나, 스펙을 바꿔야 하면 설계로 |
 | N28 | DoD 미충족 | N23 | 완료 기준을 채울 때까지 작업 |
 | N33 | 피드백 | N02 / N03F | 스펙이나 화면을 갱신하고 새 요구를 백로그로 |
-| N44 | 회고 끝 | N11 | 다음 스프린트 시작 |
+| N44 | 회고 끝 | N01 | 다음 스프린트 시작 |
 
 ## 실패 원인과 횟수 제한
 

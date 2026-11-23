@@ -42,7 +42,7 @@ class BuildError(Exception):
 # ---------------------------------------------------------------- 원본과 해시
 
 def source_files():
-    files = [ROOT / "README.md", ROOT / "site" / "index.html", VIEW / "build.py", VIEW / "style.css"]
+    files = [ROOT / "README.md", ROOT / "site" / "index.html", VIEW / "build.py", VIEW / "style.css", VIEW / "nodemap.js"]
     files += sorted((ROOT / "docs").glob("*.md"))
     return sorted(files, key=lambda p: p.relative_to(ROOT).as_posix())
 
@@ -252,6 +252,169 @@ def idchip(ctx, token):
     return f'<span class="badge c-human">{esc(token)}</span>'
 
 
+# ---------------------------------------------------------------- 노드 맵 (Mermaid 원본을 읽어 노드 맵(nodemap.js) 데이터로 바꾼다)
+
+SHAPE = r'(?:\(\[".*?"\]\)|\["[^"]*"\]|\{"[^"]*"\})'
+NODE_TOKEN = re.compile(r"\s*([A-Za-z][A-Za-z0-9]*)\s*(" + SHAPE + r")?")
+EDGE_TOKEN = re.compile(r"\s*(?:--\s+(?P<l1>.+?)\s+-->|-->|-\.\s+(?P<l2>.+?)\s+\.->|-\.->)")
+
+
+def parse_map(mmd):
+    """workflow.md 노드 맵에서 스테이지별 노드 순서, 노드 글자, 화살표를 읽는다."""
+    stages, labels, edges, stage_of = {}, {}, [], {}
+    current = None
+    for raw in mmd.splitlines():
+        line = raw.strip()
+        if not line or re.match(r"(flowchart|classDef|class |style |direction|%%)", line):
+            continue
+        sg = re.match(r'subgraph\s+(\w+)\["(.*)"\]', line)
+        if sg:
+            st = re.fullmatch(r"ST(\d)", sg.group(1))
+            current = int(st.group(1)) if st else None
+            if current is not None:
+                stages[current] = {"title": sg.group(2), "nodes": []}
+            continue
+        if line == "end":
+            current = None
+            continue
+        pos, prev, pending = 0, None, None
+        while True:
+            m = NODE_TOKEN.match(line, pos)
+            if not m:
+                raise BuildError(f"노드 맵 줄을 읽지 못했습니다: {raw.strip()}")
+            nid, shape = m.group(1), m.group(2)
+            pos = m.end()
+            if shape:
+                labels[nid] = re.search(r'"(.*)"', shape, flags=re.S).group(1)
+            if current is not None and NODE_ID.fullmatch(nid) and nid not in stage_of:
+                stage_of[nid] = current
+                stages[current]["nodes"].append(nid)
+            if prev is not None:
+                edges.append({"src": prev, "dst": nid, "label": pending[0], "dotted": pending[1]})
+            e = EDGE_TOKEN.match(line, pos)
+            if not e:
+                break
+            pending = ((e.group("l1") or e.group("l2") or "").strip(), e.group(0).strip().startswith("-."))
+            prev, pos = nid, e.end()
+        if line[pos:].strip():
+            raise BuildError(f"노드 맵 줄 끝을 읽지 못했습니다: {raw.strip()}")
+    return stages, labels, edges, stage_of
+
+
+def map_model():
+    wf = read("docs/workflow.md")
+    m = re.search(r"```mermaid\n(.*?)```", wf, flags=re.S)
+    if not m:
+        raise BuildError("docs/workflow.md에서 노드 맵을 찾지 못했습니다")
+    stages, labels, edges, stage_of = parse_map(m.group(1))
+    outs, conns, gates = {}, {}, []
+    for e in edges:
+        s, d = e["src"], e["dst"]
+        if s.startswith("ST") and d.startswith("ST"):
+            gates.append((int(s[2:]), int(d[2:]), e["label"]))
+            continue
+        if not NODE_ID.fullmatch(s):
+            continue
+        if NODE_ID.fullmatch(d):
+            seq = stages[stage_of[s]]["nodes"]
+            if stage_of[s] == stage_of[d] and seq.index(d) == seq.index(s) + 1:
+                conns[s] = {"to": d, "label": e["label"], "dotted": e["dotted"]}
+                kind = "next"
+            elif stage_of[s] == stage_of[d] and seq.index(d) < seq.index(s):
+                kind = "loop"
+            else:
+                kind = "aux" if e["dotted"] else "branch"
+            target, ghost = d, ""
+        else:
+            hit = NODE_ID.search(labels.get(d, ""))
+            if not hit:
+                raise BuildError(f"되돌림 표지 {d}에서 돌아갈 노드를 찾지 못했습니다")
+            target, kind = hit.group(), "back"
+            ghost = labels[d].split("<br/>")[-1]
+        outs.setdefault(s, []).append({"to": target, "label": e["label"], "kind": kind, "note": ghost})
+    return stages, labels, outs, conns, gates
+
+
+def nodemap_data():
+    """노드 맵(nodemap.js)에 넣을 데이터. docs/workflow.md 노드 맵 + docs/nodes.md + docs/glossary.md의 TDD 루프."""
+    nodes, _ = load_nodes()
+    by = {n["id"]: n for n in nodes}
+    stages, labels, outs, conns, gates = map_model()
+    data = {"stages": [], "nodes": {}, "edges": [], "gates": []}
+    for s in sorted(stages):
+        data["stages"].append({"n": s, "title": stages[s]["title"].split("·")[-1].strip(), "nodes": stages[s]["nodes"]})
+    for nid, n in by.items():
+        lab = labels.get(nid, nid).split("<br/>", 1)
+        name = re.sub(r"<[^>]+>", "", n["name"])
+        data["nodes"][nid] = {"id": nid, "short": lab[1].replace("<br/>", " ") if len(lab) > 1 else name, "name": name,
+                              "m": n["method"], "kind": n["kind"], "once": "프로젝트당 1회" in n["name"], "stage": n["stage"]}
+    for s, lst in outs.items():
+        for o in lst:
+            e = {"from": s, "to": o["to"], "kind": o["kind"], "label": o["label"], "note": o["note"]}
+            if o["kind"] == "next":
+                e["dotted"] = conns[s]["dotted"]
+            data["edges"].append(e)
+    data["gates"] = [{"from": a, "to": b, "label": l} for a, b, l in gates]
+    # 루프 상자는 용어집의 TDD 루프만 묶는다 (오너 결정 2026-11-18)
+    m = re.search(r"(TDD 루프) = (N\w+(?: → N\w+)+)", read("docs/glossary.md"))
+    if not m:
+        raise BuildError("docs/glossary.md에서 'TDD 루프 = N.. → N..' 정의를 찾지 못했습니다")
+    data["loop"] = {"name": m.group(1), "nodes": m.group(2).split(" → ")}
+    m = re.search(r"스프린트 \(한 바퀴, ([^)]+)\)", read("docs/workflow.md"))
+    data["sprint"] = m.group(1) if m else ""
+    return data
+
+
+def nodemap_problems():
+    """노드 맵 그림이 원본과 맞는지: 굵은 선 = 앞으로 가는 경로, 스테이지 사이 연결, TDD 루프 위치."""
+    try:
+        d = nodemap_data()
+    except BuildError as e:
+        return [str(e)]
+    out = []
+    side = lambda i: d["nodes"][i]["kind"] == "반복" or d["nodes"][i]["once"]
+    trunk = {s["n"]: [i for i in s["nodes"] if not side(i)] for s in d["stages"]}
+    nexts = {(e["from"], e["to"]) for e in d["edges"] if e["kind"] == "next" and not e.get("dotted")}
+    pairs = {(t[k], t[k + 1]) for t in trunk.values() for k in range(len(t) - 1)}
+    if pairs != nexts:
+        out.append(f"노드 맵의 굵은 선과 원본의 앞으로 가는 경로가 다릅니다: {sorted(pairs ^ nexts)}")
+    for g in d["gates"]:
+        if not g["label"].startswith(trunk[g["from"]][-1] + " "):
+            out.append(f"Stage {g['from']} → {g['to']} 연결이 그 스테이지의 마지막 노드에서 나가지 않습니다: {g['label']}")
+    loop = d["loop"]["nodes"]
+    if not any(" ".join(loop) in " ".join(t) for t in trunk.values()):
+        out.append(f"TDD 루프 {' → '.join(loop)}가 한 스테이지 안에 이 순서로 이어져 있지 않습니다.")
+    return out
+
+
+def nodemap_block(causes_link=""):
+    data = json.dumps(nodemap_data(), ensure_ascii=False).replace("</", "<\\/")
+    js = (VIEW / "nodemap.js").read_text(encoding="utf-8")
+    causes = f'<a href="{causes_link}">실패 원인</a>' if causes_link else "아래 실패 원인"
+    return f"""<div class="nm" data-nodemap>
+  <div class="nm-legend">
+    <span><i class="nm-lg-line"></i>경로 (앞으로 가는 것만 선)</span>
+    <span><i class="nm-lg-dot"></i>작업 노드</span>
+    <span><i class="nm-lg-dia"></i>판단 노드</span>
+    <span><i class="nm-lg-dash"></i>반복 노드 · 프로젝트당 1회</span>
+    <span><b class="nm-ret">↩ N23</b>같은 스테이지의 앞 노드로</span>
+    <span><b class="nm-up">↩ N03F <small>Stage 0</small></b>앞 스테이지로</span>
+    <span><b class="nm-spr">↻ N01</b>다음 스프린트</span>
+    <span><i class="nm-lg-box"></i>TDD 루프</span>
+  </div>
+  <p class="nm-hint"><b>고리에서 스테이지를 누르면</b> 아래에 그 스테이지의 노드가 열립니다. <b>노드를 누르면</b> 그 노드로 들어오고 나가는 돌아가는 경로가 왼쪽에 곡선으로 나타나고, 관계없는 노드는 흐려집니다. 다시 누르거나 Esc를 누르면 돌아갑니다.</p>
+  <div class="nm-cyc"></div>
+  <div class="nm-cross"></div>
+  <div class="nm-map"></div>
+  <p class="nm-hint">표에 적은 "아니오"의 갈 곳은 기본 경로입니다. 실제로 어디로 돌아갈지는 {causes}으로 정합니다.</p>
+  <script type="application/json" class="nm-data">{data}</script>
+</div>
+<script>
+{js}
+document.querySelectorAll('[data-nodemap]').forEach(fourddNodemapMount);
+</script>"""
+
+
 def legend_methods():
     items = [("scrum", "스크럼"), ("sdd", "SDD 스펙"), ("bdd", "BDD 시나리오"), ("fig", "Figma 디자인"), ("tdd", "TDD 테스트")]
     sw = "".join(f'<span class="swatch c-{k}">{v}</span>' for k, v in items)
@@ -316,9 +479,10 @@ def page_workflow(ctx):
   </div>
 </header>
 <section>
-  <h2>스테이지와 노드</h2>
+  <h2>노드 맵</h2>
+  <p>위 고리가 스프린트 한 바퀴(Stage 0 → 4 → 다음 스프린트)입니다. 스테이지를 누르면 아래에 그 스테이지의 노드가 순서대로 열립니다.</p>
   {legend_methods()}
-  <div class="lanes">{"".join(lanes)}</div>
+  {nodemap_block()}
 </section>
 <section>
   <h2>되돌림 경로</h2>
@@ -572,6 +736,15 @@ def page_index(ctx):
         if old not in src:
             raise BuildError(f"site/index.html 에서 {old} 를 찾지 못했습니다")
         src = src.replace(old, new, 1)
+    # 사이트의 Mermaid 노드 맵 자리를 아티팩트에서는 노드 맵(시안 나)으로 바꾼다 (원본 데이터는 같다)
+    map_section = re.compile(r"(<h2>4DD 스프린트 노드 맵</h2>).*?(\n  </section>)", flags=re.S)
+    if not map_section.search(src):
+        raise BuildError("site/index.html 에서 노드 맵 구역을 찾지 못했습니다")
+    intro = (
+        "\n    <p>위 고리가 스프린트 한 바퀴(Stage 0 → 4 → 다음 스프린트)입니다. 노드 색은 방법론을, 마름모는 판단 노드를 뜻합니다. "
+        "스테이지를 누르면 아래에 그 스테이지의 노드가 순서대로 열립니다.</p>\n    "
+    )
+    src = map_section.sub(lambda m: m.group(1) + intro + nodemap_block("workflow.html") + m.group(2), src, count=1)
     tail = src.rfind("</div>\n\n<script>")
     if tail < 0:
         raise BuildError("site/index.html 끝부분 구조가 예상과 다릅니다")
@@ -654,6 +827,48 @@ def node_problems():
         if ids != ids_nodes:
             miss, extra = sorted(ids_nodes - ids), sorted(ids - ids_nodes)
             out.append(f"{name}의 노드 ID가 docs/nodes.md와 다릅니다. 빠짐: {miss or '없음'}, 남음: {extra or '없음'}")
+    out += map_problems(wf)
+    out += nodemap_problems()
+    return out
+
+
+def norm_lines(text):
+    return [l.strip() for l in text.strip().splitlines() if l.strip()]
+
+
+def map_problems(wf):
+    """노드 맵 두 벌(workflow.md, 사이트)이 같은지, 스테이지를 거꾸로 가는 화살표가 없는지."""
+    out = []
+    m = re.search(r"```mermaid\n(.*?)```", wf, flags=re.S)
+    s = re.search(r'<pre class="mermaid">\n(.*?)</pre>', read("site/index.html"), flags=re.S)
+    if not m or not s:
+        return ["노드 맵(mermaid)을 docs/workflow.md나 site/index.html에서 찾지 못했습니다."]
+    if norm_lines(m.group(1)) != norm_lines(s.group(1)):
+        out.append("docs/workflow.md와 site/index.html의 노드 맵이 서로 다릅니다. 같은 내용으로 맞추세요.")
+    # 앞 스테이지로 거꾸로 가는 화살표가 있으면 Mermaid가 스테이지 순서를 뒤섞는다 (2026-11-18 오너 지적)
+    stage_of = {}
+    current = None
+    for line in m.group(1).splitlines():
+        sg = re.match(r"\s*subgraph\s+ST(\d)\b", line)
+        if sg:
+            current = int(sg.group(1))
+            continue
+        if re.match(r"\s*end\s*$", line):
+            current = None
+            continue
+        if current is not None:
+            for nid in NODE_ID.findall(re.sub(r'\(\[".*?"\]\)', "", line)):
+                stage_of.setdefault(nid, current)
+    for line in m.group(1).splitlines():
+        line = re.sub(r'\(\[".*?"\]\)|\["[^"]*"\]|\{"[^"]*"\}', "", line)
+        ids = re.findall(r"\b(N[0-9][0-9D][FW]?|ST\d)\b", line)
+        if not re.search(r"--|-\.", line) or len(ids) < 2:
+            continue
+        for a, b in zip(ids, ids[1:]):
+            sa = int(a[2]) if a.startswith("ST") else stage_of.get(a)
+            sb = int(b[2]) if b.startswith("ST") else stage_of.get(b)
+            if sa is not None and sb is not None and sb < sa:
+                out.append(f"노드 맵에 앞 스테이지로 거꾸로 가는 화살표가 있습니다: {a} → {b}. 그림 순서가 뒤섞이니 '↩ {b}' 표지로 바꾸세요.")
     return out
 
 
