@@ -1,0 +1,13 @@
+{
+  "artifact_url": "https://claude.ai/artifact/QvwmRXisABunc6DLTiaegf",
+  "source_hash": "abea45e37e59f4443347140706f2a00b64e0ae89a84e7035600b0b7208e32e70",
+  "published_at": "2026-11-23T15:49:19",
+  "artifact_version": "15 (1795416559-9df9)",
+  "pages": {
+    "index.html": "9cd89453bce3018d9a77f6e36e0587a17696233d0b1760f8c7c5cb5d27c574f9",
+    "workflow.html": "264c59ecab2f48b3bb9f780b4f64818495393aa3bc18d9650649142f9566ed8e",
+    "harness.html": "679eca58b0291ed2e822f43ad46fdc37bc973d46b3184c4c0718b0f8359ace65",
+    "glossary.html": "88e24809ee6fd847877e13766b8df927613191fa4f30d81a4ba5a6892c5de429",
+    "changes.html": "a4c96f6dcf13549f8200f03a7b9d5fbfb089626c37a7fd3ac7afe11fe4e59d8f"
+  }
+}

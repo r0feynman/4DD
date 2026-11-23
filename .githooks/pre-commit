@@ -1,0 +1,10 @@
+#!/bin/sh
+# 4DD: 저장소 문서와 오너용 아티팩트 「4DD 개발론」이 어긋난 채로 커밋되지 않게 막는다.
+# 켜기: git config core.hooksPath .githooks
+changed=$(git diff --cached --name-only)
+echo "$changed" | grep -qE '^(README\.md|docs/|site/|docs-view/)' || exit 0
+if ! python3 docs-view/build.py check; then
+  echo "" >&2
+  echo "커밋을 막았습니다. Claude 세션에서 4dd-docs-sync 스킬로 빌드와 게시를 마친 뒤 docs-view/sync.json과 함께 커밋하세요." >&2
+  exit 1
+fi
