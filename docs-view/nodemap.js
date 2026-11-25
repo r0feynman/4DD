@@ -1,6 +1,7 @@
 /* 4DD 노드 맵 (오너가 고른 시안 나, 2026-11-23).
    위에 스프린트 고리(Stage 0 → 4 → 다음 스프린트)를 두고, 스테이지를 누르면 아래에 그 스테이지의 노드를 세로로 연다.
    - 굵은 선은 앞으로 가는 경로만 긋는다. 돌아가는 경로는 노드 옆 표의 ↩ 표지로 적는다.
+   - ↪ 표지는 개발 중에 앞 스테이지로 돌아갔던 작업이 다시 승인받고 원래 작업으로 돌아오는 곳이다 (kind 'resume').
    - 루프 상자는 용어집의 TDD 루프(data.loop)만 묶는다 (오너 결정 2026-11-18).
    - 노드를 누르면 그 노드로 들어오고 나가는 돌아가는 경로를 왼쪽에 둥근 곡선으로 그린다.
      곡선은 노드에서 띄워 시작하고 끝내며, 화살촉은 그대로 둔다 (오너 요청 2026-11-23).
@@ -47,11 +48,12 @@ function fourddNodemapMount(root) {
   function kindOf(e) {
     if (isSide(e.from)) return 'side';
     if (e.kind === 'next' || e.kind === 'aux') return 'fwd';
+    if (e.kind === 'resume') return 'res';
     if (e.label === '다음 스프린트') return 'spr';
     return st(e.to) < st(e.from) ? 'up' : 'ret';
   }
   function isBack(k) { return k === 'ret' || k === 'up' || k === 'spr'; }
-  var RANK = { fwd: 0, gate: 1, side: 2, ret: 3, up: 4, spr: 5 };
+  var RANK = { fwd: 0, gate: 1, res: 1.5, side: 2, ret: 3, up: 4, spr: 5 };
   function outs(id) {
     var r = E.filter(function (e) { return e.from === id; }).map(function (e) { return { lab: e.label, to: e.to, k: kindOf(e) }; });
     if (!isSide(id)) {
@@ -71,10 +73,10 @@ function fourddNodemapMount(root) {
 
   // ---------- 스테이지 하나를 세로로 ----------
   function chip(id, k) {
-    var cls = { ret: 'nm-ret', up: 'nm-up', spr: 'nm-spr' }[k] || 'nm-ref';
-    var pre = (k === 'ret' || k === 'up') ? '↩ ' : (k === 'spr' ? '↻ ' : '');
+    var cls = { ret: 'nm-ret', up: 'nm-up', spr: 'nm-spr', res: 'nm-res' }[k] || 'nm-ref';
+    var pre = (k === 'ret' || k === 'up') ? '↩ ' : (k === 'spr' ? '↻ ' : (k === 'res' ? '↪ ' : ''));
     var b = h('button', { class: cls, type: 'button', 'data-go': id, title: id + ' ' + N[id].name }, pre + id);
-    if (k === 'up') b.append(h('small', {}, 'Stage ' + st(id)));
+    if (k === 'up' || k === 'res') b.append(h('small', {}, 'Stage ' + st(id)));
     if (k === 'spr') b.append(h('small', {}, '다음 스프린트'));
     return b;
   }
@@ -99,16 +101,23 @@ function fourddNodemapMount(root) {
       return h('button', { class: 'nm-ref', type: 'button', 'data-go': x.from, title: x.from + ' ' + (x.lab || '') }, x.from);
     }));
   }
+  // 화면이 없는 작업 유형에서 건너뛰는 노드 (data.skip: 노드 ID → 대신 가는 경로, ""면 거치지 않음)
+  function skipText(id) {
+    if (!D.skip || !(id in D.skip)) return null;
+    return D.skip[id] ? '화면이 없으면 건너뜀 · ' + D.skip[id] : '화면이 없으면 거치지 않음';
+  }
   function sideCard(sid) {
-    var n = N[sid], e = E.filter(function (x) { return x.from === sid; })[0];
+    var n = N[sid], e = E.filter(function (x) { return x.from === sid; })[0], sk = skipText(sid);
     return h('button', { class: 'nm-side c-' + n.m, type: 'button', 'data-node': sid, 'data-side': sid },
       h('b', {}, sid + ' ', h('span', {}, n.short.replace(' (프로젝트당 1회)', ''))),
-      h('small', {}, (n.once ? '프로젝트당 1회 노드' : '반복 노드') + ' · ' + e.label + ' → ' + e.to));
+      h('small', {}, (n.once ? '프로젝트당 1회 노드' : '반복 노드') + ' · ' + e.label + ' → ' + e.to),
+      sk ? h('span', { class: 'nm-skip' }, sk) : null);
   }
   function row(id) {
-    var n = N[id];
+    var n = N[id], sk = skipText(id);
     var aside = h('div', { class: 'nm-aside' });
     E.filter(function (e) { return e.to === id && isSide(e.from); }).forEach(function (e) { aside.append(sideCard(e.from)); });
+    if (sk) aside.append(h('span', { class: 'nm-skip' }, sk));
     add(aside, decTable(id));
     add(aside, backIn(id));
     return h('li', { class: 'nm-row c-' + n.m, 'data-id': id },
@@ -213,7 +222,7 @@ function fourddNodemapMount(root) {
   // ---------- 노드 누르기 ----------
   function relItems(list, key) {
     return list.map(function (x) {
-      return h('span', { class: 'nm-it' }, chip(x[key], isBack(x.k) ? x.k : 'ref'), x.lab ? h('em', {}, x.lab) : null);
+      return h('span', { class: 'nm-it' }, chip(x[key], isBack(x.k) || x.k === 'res' ? x.k : 'ref'), x.lab ? h('em', {}, x.lab) : null);
     });
   }
   function clearFocus() {
@@ -269,12 +278,13 @@ function fourddNodemapMount(root) {
       h('span', { class: 'nm-ctm' }, '노드 ' + stg.nodes.length + ' · 판단 노드 ' + dec), extra.length ? h('span', { class: 'nm-ctm' }, extra.join(' · ')) : null);
   }
   function crossEdges(s) {
-    var out = [], inn = [];
+    var out = [], inn = [], rout = [], rinn = [];
     E.forEach(function (e) {
-      if (kindOf(e) !== 'up') return;
-      if (st(e.from) === s) out.push(e); else if (st(e.to) === s) inn.push(e);
+      var k = kindOf(e);
+      if (k === 'up') { if (st(e.from) === s) out.push(e); else if (st(e.to) === s) inn.push(e); }
+      if (k === 'res') { if (st(e.from) === s) rout.push(e); else if (st(e.to) === s) rinn.push(e); }
     });
-    return { out: out, inn: inn };
+    return { out: out, inn: inn, rout: rout, rinn: rinn };
   }
   function drawCycle() {
     cyc.replaceChildren();
@@ -321,7 +331,7 @@ function fourddNodemapMount(root) {
     }
     // 고른 스테이지와 다른 스테이지 사이에서 거꾸로 가는 경로
     var cr = crossEdges(sel), pairs = {};
-    cr.out.concat(cr.inn).forEach(function (e) { pairs[st(e.from) + '>' + st(e.to)] = [st(e.from), st(e.to)]; });
+    cr.out.concat(cr.inn, cr.rout, cr.rinn).forEach(function (e) { pairs[st(e.from) + '>' + st(e.to)] = [st(e.from), st(e.to)]; });
     Object.keys(pairs).forEach(function (key, j) {
       var A = pos[pairs[key][0]], B = pos[pairs[key][1]], d2;
       if (!narrow) {
@@ -358,14 +368,16 @@ function fourddNodemapMount(root) {
     function line(lbl, list, key) {
       if (!list.length) return;
       cross.append(h('div', { class: 'nm-rl' }, h('span', {}, lbl), list.map(function (e) {
-        return h('span', { class: 'nm-it' }, h('button', { class: 'nm-ref', type: 'button', 'data-go': e[key], title: e.from + ' ' + e.label + ' → ' + e.to }, e.from + ' ' + e.label + ' →'), chip(e.to, 'up'));
+        return h('span', { class: 'nm-it' }, h('button', { class: 'nm-ref', type: 'button', 'data-go': e[key], title: e.from + ' ' + e.label + ' → ' + e.to }, e.from + ' ' + e.label + ' →'), chip(e.to, kindOf(e)));
       })));
     }
     line('앞 스테이지로 감', cr.out, 'from');
     line('뒤 스테이지에서 돌아옴', cr.inn, 'to');
+    line('원래 작업으로 돌아감', cr.rout, 'from');
+    line('앞 스테이지에서 원래 작업으로 돌아옴', cr.rinn, 'to');
     var spr = E.filter(function (e) { return kindOf(e) === 'spr' && (st(e.from) === s || st(e.to) === s); });
     if (spr.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '다음 스프린트'), spr.map(function (e) { return h('span', { class: 'nm-it' }, h('span', { class: 'nm-ref' }, e.from), '→', chip(e.to, 'spr')); })));
-    if (!cr.out.length && !cr.inn.length && !spr.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '없음. 이 스테이지 안에서만 오갑니다.')));
+    if (!cr.out.length && !cr.inn.length && !cr.rout.length && !cr.rinn.length && !spr.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '없음. 이 스테이지 안에서만 오갑니다.')));
   }
 
   // ---------- 고르기와 이벤트 ----------

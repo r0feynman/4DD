@@ -38,7 +38,7 @@
 
 ## DoD (완료 기준)
 
-다음 네 가지를 모두 충족해야 작업이 끝납니다.
+다음 네 가지를 모두 충족해야 작업이 끝납니다. 화면이 없는 작업 유형(백엔드 등)은 네 번째 항목을 뺍니다.
 
 - [ ] 스토리의 BDD 시나리오가 모두 통과
 - [ ] 새 코드는 TDD로 작성 (단위 테스트 포함)
@@ -49,7 +49,7 @@
 
 | 문서 | 내용 |
 |---|---|
-| [docs/workflow.md](docs/workflow.md) | 스프린트·스테이지·노드 맵 (Mermaid), 되돌림 경로 |
+| [docs/workflow.md](docs/workflow.md) | 스프린트·스테이지·노드 맵 (Mermaid), 되돌림 경로, 실패 원인, 화면이 없는 작업 유형 |
 | [docs/nodes.md](docs/nodes.md) | 모든 노드의 스테이지, 방법론, 종류, 담당, 산출물, 다음 노드 |
 | [docs/glossary.md](docs/glossary.md) | 용어집: 스프린트, 스테이지, 노드, 노드 ID 규칙 등 |
 | [docs/figma-bdd.md](docs/figma-bdd.md) | BDD 시나리오와 Figma 프레임을 짝짓는 방법 |
