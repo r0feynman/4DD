@@ -58,12 +58,20 @@ export function humanAction(root: string, kind: HumanKind, arg?: string, minutes
   const reason = (CAUSES as readonly string[]).includes(state.waiting?.reason ?? "") ? (state.waiting?.reason as Cause) : undefined;
   const { events } = readEvents(root);
   const id = nextId(events, "HU");
-  const extra = minutes !== undefined ? { minutes } : {};
+  // 작업 없이 Stage 0·1을 도는 기능이면 기능으로 묶는다 (조각 2: 다음 차례의 맥락이 그 기능의 사람 말을 찾음)
+  const extra = { ...(minutes !== undefined ? { minutes } : {}), ...(!task && state.planning ? { feature: state.planning } : {}) };
 
   switch (kind) {
     case "approve": {
       writeBaseline(root, computeBaseline(root, loadConfig(root)));
-      appendEvent(root, H, { type: "human", id, node, task, kind: "approve", ...(reason ? { reason } : {}), ...extra });
+      // 승인하며 준 답(예: 스펙으로 돌아갈 때 PO의 답)은 다음 차례의 맥락에 들어간다
+      let textHash: string | undefined;
+      if (arg?.trim()) {
+        mkdirSync(join(root, HUMAN_DIR), { recursive: true });
+        writeFileSync(join(root, HUMAN_DIR, `${id}.md`), arg.trim() + "\n");
+        textHash = createHash("sha256").update(arg.trim()).digest("hex").slice(0, 12);
+      }
+      appendEvent(root, H, { type: "human", id, node, task, kind: "approve", ...(reason ? { reason } : {}), ...(textHash ? { text_hash: textHash } : {}), ...extra });
       git(root, ["add", "-A"]);
       git(root, ["commit", "-q", "--allow-empty", "-m", `human approve (${reason ?? state.status})\n\n4DD-Node: ${node}\n${task ? `4DD-Task: ${task}\n` : ""}4DD-Human: ${id}`], { FOURDD_ALLOW_LOCKED: "1" });
       const sha = git(root, ["rev-parse", "HEAD"]).trim();

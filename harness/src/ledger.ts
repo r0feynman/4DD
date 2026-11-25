@@ -119,7 +119,7 @@ export const EventSchema = z.discriminatedUnion("type", [
     to: Node.optional(),
   }),
   /** 사람 승인이나 스토리를 기다리기 시작함 (조각 2). 기다리는 동안 지휘 프로그램은 돌지 않는다 */
-  z.strictObject({ type: z.literal("await_human"), ...Common, node: Node, task: Task.nullable(), feature: Feature.optional(), reason: z.enum(["review", "story"]) }),
+  z.strictObject({ type: z.literal("await_human"), ...Common, node: Node, task: Task.nullable(), feature: Feature.optional(), reason: z.enum(["review", "story", "not_ready"]) }),
   /** 검토 페이지를 만들거나(built) 게시함(published) (조각 2) */
   z.strictObject({
     type: z.literal("review"),
