@@ -72,7 +72,7 @@ export function initProject(dest: string, opts: InitOptions = {}): InitResult {
   const preCommit = join(root, ".githooks", "pre-commit");
   writeFileSync(preCommit, `#!/bin/sh\n# 4DD 잠금 검사 (4dd init이 만듦)\nexec ${hookCommand("check commit")}\n`);
   chmodSync(preCommit, 0o755);
-  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일\n${DIR}/state.json\n${DIR}/*.tmp\n`);
+  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\n`);
 
   // 4. git 저장소. 기준 해시는 git이 아는 파일로 정하므로 저장소를 먼저 만든다.
   git(root, ["init", "-q", "-b", "main"]);

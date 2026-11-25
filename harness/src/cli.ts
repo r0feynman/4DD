@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadConfig } from "./config.ts";
+import { runGate } from "./gate.ts";
 import { checkCommit, checkDiff } from "./guard.ts";
 import { runHook, type Tool } from "./hooks.ts";
 import { initProject } from "./init.ts";
@@ -23,6 +24,7 @@ const USAGE = `사용법: 4dd <명령>
   check hook --tool <claude|codex>             훅 입구 (표준 입력의 훅 JSON을 읽음)
   check commit                                 git pre-commit 입구
   check diff --node <노드> [--run NR..] [--revert]  마지막 커밋 뒤 이 노드에서 고칠 수 없는 곳이 바뀌었는지
+  gate <노드> --task <작업> [--run NR..] [--root 폴더]  관문을 돌리고 원장에 남긴다 (0 통과 · 1 실패)
 
 종료 코드: 0 통과 · 2 막음 · 1 잘못된 사용이나 오류`;
 
@@ -161,6 +163,24 @@ function check(sub: string | undefined, args: string[]): number {
   return 1;
 }
 
+function gate(args: string[]): number {
+  const { pos, opt } = parseArgs(args);
+  const nodeId = pos[0];
+  if (!nodeId) {
+    err(USAGE);
+    return 1;
+  }
+  const root = resolve(str(opt.root) ?? ".");
+  const runId = str(opt.run) ?? (existsSync(join(root, DIR)) ? loadState(root).state.node_run : null);
+  if (!runId) {
+    err("[4DD] 노드 실행 ID가 없습니다. --run NR..을 주거나 4dd run 안에서 부르세요");
+    return 1;
+  }
+  const r = runGate({ root, config: loadConfig(root), nodes: loadNodes(), nodeId, task: str(opt.task) ?? null, runId });
+  (r.passed ? out : err)(r.summary);
+  return r.passed ? 0 : 1;
+}
+
 function init(args: string[]): number {
   const { pos, opt } = parseArgs(args);
   if (!pos[0]) {
@@ -185,6 +205,7 @@ function main(argv: string[]): number {
     if (cmd === "init") return init(rest);
     if (cmd === "status") return status(rest[0]);
     if (cmd === "check") return check(rest[0], rest.slice(1));
+    if (cmd === "gate") return gate(rest);
   } catch (e) {
     err(`[4DD] ${(e as Error).message}`);
     return 1;
