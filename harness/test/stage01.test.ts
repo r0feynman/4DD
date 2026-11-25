@@ -10,6 +10,7 @@ import { appendEvent, nextId, readEvents } from "../src/ledger.ts";
 import { loadNodes } from "../src/nodes.ts";
 import { approveReview, buildReview, rejectReview, tellStory } from "../src/po.ts";
 import { runLoop } from "../src/run.ts";
+import { buildReport, renderReport } from "../src/report.ts";
 import { loadState } from "../src/state.ts";
 
 const nodes = loadNodes();
@@ -130,5 +131,18 @@ describe("각본 PO로 스토리부터 Stage 2 끝까지 (로그인에 두 번�
     const humans = readEvents(root).events.filter((e) => e.type === "human" && e.feature === F);
     expect(humans.every((e) => e.type === "human" && e.by === "script")).toBe(true);
     expect(git(root, ["status", "--porcelain"]).split("\n").filter((l) => l.trim() && !l.endsWith("events.jsonl"))).toEqual([]);
+  });
+
+  it("보고서: 기능별 사람 개입(각본 PO는 따로), 사람 대기, N04 되돌림 원인, 스테이지별 토큰", () => {
+    const r = buildReport(readEvents(root).events, nodes);
+    const f = r.features.find((x) => x.feature === F)!;
+    expect(f.humansTotal).toBe(0);
+    expect(f.scripted).toBe(4); // 스토리, N04 되돌림, N04 승인, N15 승인
+    expect(f.n04Rejects).toEqual({ spec_ambiguous: 1 });
+    expect(f.waits.map((w) => `${w.review}:${w.node}`)).toEqual(["RV1:N04", "RV2:N04", "RV3:N15"]);
+    expect(f.stages.map((s) => s.stage)).toEqual([0, 1, 2]);
+    expect(f.stages.every((s) => s.tokens > 0 || s.stage === 0)).toBe(true);
+    expect(r.totals.humansPerTask).toBe(0);
+    expect(renderReport(r)).toContain("## 기능별 (Stage 0·1, 조각 2)");
   });
 });

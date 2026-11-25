@@ -206,6 +206,7 @@ h1 { font-size: 24px; margin: 6px 0 4px; } h2 { font-size: 18px; margin: 28px 0 
 .warn { color:var(--warn); } .muted { color:var(--muted); font-size:13px; }
 details.src { margin-top:28px; } details.src pre { max-height: 420px; overflow:auto; }
 footer.stamp { margin-top:28px; color:var(--muted); font-size:12px; }
+@media (max-width: 560px) { .lane { flex-direction:column; } .lane .card { flex-basis:auto; } .arrow { transform: rotate(90deg); } }
 `;
 
 export function renderReviewPage(input: ReviewPageInput): string {

@@ -80,6 +80,14 @@ beforeAll(() => {
   initProject(root, { from: fixtureDir("login-reset"), install: false });
 });
 
+it("4dd init이 PO 창구 스킬을 프로젝트에 넣는다 (명령 경로를 채워서)", () => {
+  const skill = readFileSync(join(root, ".claude/skills/4dd-po/SKILL.md"), "utf8");
+  expect(skill).toMatch(/^---\nname: 4dd-po\n/);
+  expect(skill).toContain(`--root ${root}`);
+  expect(skill).toMatch(/node \S+\/src\/cli\.ts <명령>/);
+  expect(skill).not.toContain("{{");
+});
+
 describe("4dd story (N01)", () => {
   it("하네스가 띄운 세션에서는 사람 명령을 쓸 수 없다", () => {
     expect(() => tellStory(root, F, "재설정", {}, { FOURDD_NODE: "N24" } as NodeJS.ProcessEnv)).toThrow(/하네스가 띄운 세션\(N24\)/);

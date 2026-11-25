@@ -1,7 +1,7 @@
 // 4dd init: 시험 프로젝트를 새 git 저장소로 복사하고, 훅을 걸고, 잠긴 파일의 기준 해시를 고정한다.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.ts";
@@ -12,6 +12,8 @@ import { checkProject, formatIssues } from "./trace.ts";
 
 export const CLI_PATH = fileURLToPath(new URL("./cli.ts", import.meta.url));
 export const DEFAULT_FIXTURE = fileURLToPath(new URL("../fixtures/login-backend", import.meta.url));
+/** PO 창구 스킬의 원본 (조각 2) */
+export const PO_SKILL = fileURLToPath(new URL("../skills/4dd-po/SKILL.md", import.meta.url));
 const SKIP = new Set(["node_modules", ".git", DIR]);
 
 export class InitError extends Error {
@@ -66,6 +68,10 @@ export function initProject(dest: string, opts: InitOptions = {}): InitResult {
   //    프로젝트가 아니라 사용자 설정에 한 번 넣는다 (4dd setup codex, setup.ts).
   mkdirSync(join(root, DIR, "hooks"), { recursive: true });
   writeFileSync(join(root, DIR, "hooks", "claude.json"), claudeHooksJson());
+  // PO 창구 스킬 (조각 2): 오너가 프로젝트 폴더에서 여는 Claude 세션이 따른다. 하네스가 띄운 작업 세션은 스킬을 끈 채 돈다.
+  const skill = readFileSync(PO_SKILL, "utf8").replaceAll("{{CLI}}", `node ${CLI_PATH}`).replaceAll("{{ROOT}}", root);
+  mkdirSync(join(root, ".claude", "skills", "4dd-po"), { recursive: true });
+  writeFileSync(join(root, ".claude", "skills", "4dd-po", "SKILL.md"), skill);
   mkdirSync(join(root, ".githooks"), { recursive: true });
   const preCommit = join(root, ".githooks", "pre-commit");
   writeFileSync(preCommit, `#!/bin/sh\n# 4DD 잠금 검사 (4dd init이 만듦)\nexec ${hookCommand("check commit")}\n`);

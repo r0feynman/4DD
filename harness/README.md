@@ -26,8 +26,8 @@
 | 4 | 사람 명령: `4dd story`, `4dd review`, `4dd human approve·reject --review` | 끝 (검토 페이지, 검토 해시, 셸에서 사람 명령 막기) |
 | 5 | 노드 지시문과 `4dd context`의 새 읽을거리 | 끝 (「이번 기능」, PO의 말, Stage 2에서 돌아옴) |
 | 6 | 지휘 루프: Stage 0 → 1 → 2 | 끝 (각본 PO로 스토리부터 Stage 2 끝까지, 스테이지 세션, 리뷰 세션 관문) |
-| 7 | PO 창구 스킬 `4dd-po`와 검토 페이지 게시 | |
-| 8 | `4dd report`에 더하는 질의 | |
+| 7 | PO 창구 스킬 `4dd-po`와 검토 페이지 게시 | 끝 (`4dd init`이 스킬을 넣음, 검토 페이지 휴대폰 폭 확인) |
+| 8 | `4dd report`에 더하는 질의 | 끝 (기능별 사람 개입·대기·되돌림·스테이지별 토큰) |
 | 9 | 완료 기준 전체 | |
 
 전체 조각과 순서는 [하네스 설계의 「구현 조각」](../docs/harness-design.md#구현-조각)에 있습니다.
@@ -63,6 +63,7 @@ src/po.ts                   PO 창구의 사람 명령: 4dd story, 4dd review, �
 src/review.ts               검토 페이지 HTML (N04 스펙·시나리오, N15 목표·백로그·설계)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
+skills/4dd-po/              PO 창구 스킬 원본 (4dd init이 프로젝트의 .claude/skills/로 넣음)
 test/                       하네스 테스트
 fixtures/login-backend/     시험 프로젝트 원본 (4dd init이 복사해서 돌림)
 fixtures/login-reset/       로그인이 끝난 시험 프로젝트 (조각 2, 두 번째 기능을 더함)

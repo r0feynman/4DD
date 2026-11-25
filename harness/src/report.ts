@@ -35,6 +35,27 @@ export interface Report {
   byAgent: { agent: string; runs: number; passRate: number; tokens: number }[];
   /** 앞 작업의 구현으로 시나리오가 이미 통과한 작업 (작업 분해가 겹친 신호) */
   alreadyMet: string[];
+  /** 기능별 Stage 0·1 지표 (조각 2) */
+  features: FeatureMetrics[];
+}
+
+export interface FeatureMetrics {
+  feature: string;
+  /** 사람 개입 (각본 PO는 빼고): 노드·종류별 */
+  humans: { node: string; kind: string; count: number }[];
+  humansTotal: number;
+  /** 각본 PO의 개입 (사람 개입 수에 넣지 않음) */
+  scripted: number;
+  /** 검토 페이지를 게시(없으면 만든) 뒤 PO의 답까지 걸린 시간 (분) */
+  waits: { review: string; node: string; minutes: number }[];
+  /** N04에서 PO가 되돌린 원인 */
+  n04Rejects: Record<string, number>;
+  /** N13·N14에서 관문이나 리뷰가 고치게 한 횟수 */
+  planFails: Record<string, number>;
+  /** Stage 2에서 스펙·설계로 돌아간 원인 (Stage 0·1이 놓친 것) */
+  returns: Record<string, number>;
+  /** 스테이지별 토큰과 시간 */
+  stages: { stage: number; tokens: number; minutes: number; costUsd: number }[];
 }
 
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
@@ -73,7 +94,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     }
     return {
       task,
-      humans: events.filter((e) => e.type === "human" && e.task === task).length,
+      humans: events.filter((e) => e.type === "human" && e.task === task && e.by !== "script").length,
       decisions,
       firstPass,
       backtracks,
@@ -137,7 +158,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     versions.set(key, v);
   }
   const humans = new Map<string, number>();
-  for (const e of events) if (e.type === "human") inc(humans, e.node);
+  for (const e of events) if (e.type === "human" && e.by !== "script") inc(humans, e.node);
   const agents = new Map<string, { runs: number; pass: number; tokens: number }>();
   for (const e of ends) {
     const a = agentOf.get(e.id) ?? "-";
@@ -149,6 +170,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
   }
 
   const split = (k: string) => k.split("|");
+  const features = featureMetrics(events, ends, nodes);
   return {
     tasks,
     totals,
@@ -160,7 +182,64 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     humanByNode: [...humans].map(([node, count]) => ({ node, count })).sort((a, b) => b.count - a.count),
     byAgent: [...agents].map(([agent, v]) => ({ agent, runs: v.runs, passRate: round(v.pass / v.runs), tokens: v.tokens })),
     alreadyMet: [...new Set(ends.filter((e) => e.already_met && e.task).map((e) => e.task as string))],
+    features,
   };
+}
+
+type Human = Extract<LedgerEvent, { type: "human" }>;
+type ReviewEv = Extract<LedgerEvent, { type: "review" }>;
+
+/** 기능별 Stage 0·1 지표. 작업은 패킷 1 → 2(N15 승인)에 담긴 T로 그 기능에 묶는다. */
+function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet): FeatureMetrics[] {
+  const names = [...new Set([...ends.map((e) => e.feature), ...events.map((e) => (e.type === "human" ? e.feature : undefined))].filter((f): f is string => !!f))];
+  return names.map((feature) => {
+    const tasks = new Set(events.flatMap((e) => (e.type === "packet" && e.feature === feature && e.boundary === "1-2" ? e.refs.filter((r) => /^T\d+$/.test(r)) : [])));
+    const mine = (e: { task: string | null; feature?: string }) => (e.task ? tasks.has(e.task) : e.feature === feature);
+    const hs = events.filter((e): e is Human => e.type === "human" && mine(e));
+    const real = hs.filter((e) => e.by !== "script");
+    const byKind = new Map<string, number>();
+    for (const e of real) inc(byKind, `${e.node}|${e.kind}`);
+    // 사람 대기 시간: 검토 페이지를 게시한 때(없으면 만든 때)부터 그 검토에 대한 답까지
+    const reviews = events.filter((e): e is ReviewEv => e.type === "review" && e.feature === feature);
+    const waits = hs
+      .filter((e) => e.review)
+      .map((e) => {
+        const shown = reviews.filter((r) => r.id === e.review);
+        const from = shown.find((r) => r.action === "published") ?? shown[0];
+        return from ? { review: e.review as string, node: e.node, minutes: round((Date.parse(e.ts) - Date.parse(from.ts)) / 60_000, 1) } : null;
+      })
+      .filter((x): x is { review: string; node: string; minutes: number } => !!x);
+    const n04Rejects: Record<string, number> = {};
+    for (const e of hs) if (e.node === "N04" && e.kind === "reject") n04Rejects[e.cause ?? "-"] = (n04Rejects[e.cause ?? "-"] ?? 0) + 1;
+    const planFails: Record<string, number> = {};
+    for (const e of ends) if (mine(e) && (e.node === "N13" || e.node === "N14") && e.result === "fail") planFails[e.node] = (planFails[e.node] ?? 0) + 1;
+    const returns: Record<string, number> = {};
+    for (const e of ends) {
+      if (!e.task || !tasks.has(e.task) || e.result !== "fail" || !e.cause) continue;
+      if (["spec_ambiguous", "spec_missing_state", "arch_wrong"].includes(e.cause)) returns[e.cause] = (returns[e.cause] ?? 0) + 1;
+    }
+    const stageMap = new Map<number, { tokens: number; minutes: number; costUsd: number }>();
+    for (const e of ends) {
+      if (!mine(e)) continue;
+      const st = nodes.nodes[e.node]?.stage ?? 2;
+      const v = stageMap.get(st) ?? { tokens: 0, minutes: 0, costUsd: 0 };
+      v.tokens += (e.tokens?.input ?? 0) + (e.tokens?.output ?? 0);
+      v.minutes += e.minutes;
+      v.costUsd += e.cost_usd ?? 0;
+      stageMap.set(st, v);
+    }
+    return {
+      feature,
+      humans: [...byKind].map(([k, count]) => ({ node: k.split("|")[0], kind: k.split("|")[1], count })),
+      humansTotal: real.length,
+      scripted: hs.length - real.length,
+      waits,
+      n04Rejects,
+      planFails,
+      returns,
+      stages: [...stageMap].sort((a, b) => a[0] - b[0]).map(([stage, v]) => ({ stage, tokens: v.tokens, minutes: round(v.minutes), costUsd: round(v.costUsd, 3) })),
+    };
+  });
 }
 
 export function renderReport(r: Report): string {
@@ -176,6 +255,17 @@ export function renderReport(r: Report): string {
   for (const t of r.tasks) {
     const bt = Object.entries(t.backtracks).map(([k, v]) => `${k} ${v}`).join(", ") || "-";
     lines.push(`| ${t.task} | ${t.done ? "예" : "아니오"} | ${t.humans} | ${t.firstPass}/${t.decisions} | ${bt} | ${t.tokensIn}·${t.tokensCached}·${t.tokensOut} | ${t.minutes}분 | $${t.costUsd} |`);
+  }
+  if (r.features.length) {
+    lines.push("", "## 기능별 (Stage 0·1, 조각 2)", "", "| 기능 | 사람 개입 (노드·종류) | 각본 PO | 사람 대기 | N04 되돌림 | 관문·리뷰가 고치게 함 | Stage 2에서 돌아감 | 스테이지별 토큰·시간 |", "|---|---|---|---|---|---|---|---|");
+    const kv = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${k} ${v}`).join(", ") || "-";
+    for (const f of r.features) {
+      const hs = f.humans.map((h) => `${h.node} ${h.kind} ${h.count}`).join(", ") || "-";
+      const waits = f.waits.map((w) => `${w.review} ${w.minutes}분`).join(", ") || "-";
+      const st = f.stages.map((s) => `S${s.stage} ${s.tokens.toLocaleString("en-US")} · ${s.minutes}분`).join(" / ") || "-";
+      lines.push(`| ${f.feature} | ${f.humansTotal}번: ${hs} | ${f.scripted}번 | ${waits} | ${kv(f.n04Rejects)} | ${kv(f.planFails)} | ${kv(f.returns)} | ${st} |`);
+    }
+    lines.push("", "- N04 되돌림이 잦으면 스펙 초안(N02)이 스토리를 덜 옮긴 것이고, Stage 2에서 돌아감이 있으면 Stage 0·1이 놓친 것입니다. 둘 다 N02·N13 지시문의 「주의점」 후보입니다.");
   }
   lines.push("", "## 반복 실수와 비효율", "");
   const list = (title: string, rows: string[]) => lines.push(`### ${title}`, "", ...(rows.length ? rows.map((x) => `- ${x}`) : ["- 없음"]), "");
