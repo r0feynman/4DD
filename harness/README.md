@@ -14,7 +14,7 @@
 | 6 | 지휘 루프 `4dd run`, N27 리뷰 세션, `4dd human` | 끝 |
 | 7 | 실패 원인 분류(에이전트가 고름) | 끝 |
 | 8 | `4dd report` | 끝 |
-| 9 | 완료 기준 전체를 Claude와 Codex로 | 진행 중: Claude 끝, Codex 실행 중 |
+| 9 | 완료 기준 전체를 Claude와 Codex로 | 끝: 두 도구 모두 T1~T3을 사람 개입 없이 |
 
 ## 폴더
 
