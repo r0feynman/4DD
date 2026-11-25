@@ -164,8 +164,15 @@ export function scenariosForTask(trace: FeatureTrace, taskId: string): Scenario[
   return trace.scenarios.filter((s) => dueTask(trace, s)?.id === taskId);
 }
 
+/**
+ * 검사 범위. full: 요구사항·시나리오·작업 모두. scenarios: 요구사항과 시나리오만(Stage 0, 작업 목록은 N14에서 생김).
+ * auto: tasks.md가 있으면 full, 없으면 scenarios (프로젝트 전체를 볼 때, 아직 N14 전인 기능이 있을 수 있음).
+ */
+export type TraceMode = "full" | "scenarios" | "auto";
+
 /** 기능 폴더 하나(spec.md, *.feature, tasks.md)를 검사한다. 경로는 base 기준 상대 경로로 보고한다. */
-export function checkFeatureDir(dir: string, base: string = dir): FeatureTrace {
+export function checkFeatureDir(dir: string, base: string = dir, mode: TraceMode = "full"): FeatureTrace {
+  const withTasks = mode === "full" || (mode === "auto" && existsSync(join(dir, "tasks.md")));
   const rel = (p: string) => relative(base, p) || p;
   const issues: TraceIssue[] = [];
   const read = (name: string): string | undefined => {
@@ -179,7 +186,10 @@ export function checkFeatureDir(dir: string, base: string = dir): FeatureTrace {
 
   const specText = read("spec.md");
   const spec = specText === undefined ? { requirements: [], issues: [] } : parseSpec(specText, rel(join(dir, "spec.md")));
-  const tasksText = read("tasks.md");
+  const tasksText = withTasks ? read("tasks.md") : undefined;
+  if (mode === "auto" && !withTasks) {
+    issues.push({ level: "warning", file: rel(dir), line: 1, message: "아직 작업 목록(tasks.md)이 없어 요구사항과 시나리오만 봤습니다 (N14 전)" });
+  }
   const tasks = tasksText === undefined ? { tasks: [], issues: [] } : parseTasks(tasksText, rel(join(dir, "tasks.md")));
   const featureFiles = readdirSync(dir).filter((f) => f.endsWith(".feature")).sort();
   if (featureFiles.length === 0) {
@@ -226,7 +236,7 @@ export function checkFeatureDir(dir: string, base: string = dir): FeatureTrace {
     if (!scenarios.some((s) => s.reqs.includes(r.id))) {
       issues.push({ level: "error", file: r.file, line: r.line, message: `${r.id}: 이 요구사항을 검증하는 시나리오가 없습니다` });
     }
-    if (!tasks.tasks.some((t) => t.reqs.includes(r.id))) {
+    if (withTasks && !tasks.tasks.some((t) => t.reqs.includes(r.id))) {
       issues.push({ level: "error", file: r.file, line: r.line, message: `${r.id}: 이 요구사항을 구현하는 작업이 없습니다` });
     }
   }
@@ -239,16 +249,69 @@ export function checkFeatureDir(dir: string, base: string = dir): FeatureTrace {
   return trace;
 }
 
-/** 프로젝트의 specs/ 아래 기능 폴더를 모두 검사한다. */
-export function checkProject(root: string): FeatureTrace[] {
+/** specs/ 아래에서 spec.md가 있는 기능 폴더 이름 (Stage 0의 N02 전, story.md만 있는 폴더는 빼고). */
+export function featureNames(root: string): string[] {
+  const specs = join(root, "specs");
+  if (!existsSync(specs)) return [];
+  return readdirSync(specs)
+    .filter((d) => statSync(join(specs, d)).isDirectory() && existsSync(join(specs, d, "spec.md")))
+    .sort();
+}
+
+/**
+ * 프로젝트의 specs/ 아래 기능 폴더를 모두 검사한다. ID(R, S, T)는 프로젝트 전체에서 한 번씩만 쓴다(조각 2 명세).
+ * 기능마다 범위를 따로 줄 수 있고(modes), 없으면 mode를 쓴다.
+ */
+export function checkProject(root: string, mode: TraceMode = "auto", modes: Record<string, TraceMode> = {}): FeatureTrace[] {
   const specs = join(root, "specs");
   if (!existsSync(specs)) {
     return [{ dir: "specs", requirements: [], scenarios: [], tasks: [], issues: [{ level: "error", file: "specs", line: 1, message: "specs 폴더가 없습니다" }] }];
   }
-  return readdirSync(specs)
-    .filter((d) => statSync(join(specs, d)).isDirectory() && existsSync(join(specs, d, "spec.md")))
-    .sort()
-    .map((d) => checkFeatureDir(join(specs, d), root));
+  const traces = featureNames(root).map((d) => checkFeatureDir(join(specs, d), root, modes[d] ?? mode));
+  // 기능 사이의 ID 겹침: 먼저 나온 기능을 기준으로, 뒤 기능에 오류를 붙인다.
+  const owner = new Map<string, string>();
+  for (const t of traces) {
+    const items: { id: string; file: string; line: number }[] = [...t.requirements, ...t.scenarios, ...t.tasks];
+    for (const it of items) {
+      const first = owner.get(it.id);
+      if (first !== undefined && first !== t.dir) {
+        t.issues.push({ level: "error", file: it.file, line: it.line, message: `${it.id}가 다른 기능(${first})에도 있습니다. ID는 프로젝트 전체에서 한 번만 씁니다` });
+      } else if (first === undefined) {
+        owner.set(it.id, t.dir);
+      }
+    }
+  }
+  return traces;
+}
+
+export interface NextIds {
+  R: number;
+  S: number;
+  T: number;
+}
+
+/** 프로젝트에서 다음에 쓸 ID 번호. 기능 폴더의 파일을 형식 검사 없이 훑어 가장 큰 번호 다음을 낸다. */
+export function nextIds(root: string): NextIds {
+  const max = { R: 0, S: 0, T: 0 };
+  const specs = join(root, "specs");
+  if (!existsSync(specs)) return { R: 1, S: 1, T: 1 };
+  const bump = (kind: keyof NextIds, id: string) => {
+    const n = Number(id.slice(1));
+    if (Number.isInteger(n) && n > max[kind]) max[kind] = n;
+  };
+  for (const d of readdirSync(specs)) {
+    const dir = join(specs, d);
+    if (!statSync(dir).isDirectory()) continue;
+    for (const f of readdirSync(dir)) {
+      const p = join(dir, f);
+      if (!statSync(p).isFile()) continue;
+      const text = readFileSync(p, "utf8");
+      if (f === "spec.md") parseSpec(text, f).requirements.forEach((r) => bump("R", r.id));
+      if (f.endsWith(".feature")) parseFeature(text, f).scenarios.forEach((s) => bump("S", s.id));
+      if (f === "tasks.md") parseTasks(text, f).tasks.forEach((t) => bump("T", t.id));
+    }
+  }
+  return { R: max.R + 1, S: max.S + 1, T: max.T + 1 };
 }
 
 export function formatIssues(traces: FeatureTrace[]): string {

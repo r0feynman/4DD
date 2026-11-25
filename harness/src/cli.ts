@@ -19,7 +19,7 @@ import { DIR, readEvents } from "./ledger.ts";
 import { bashViolation, canSessionWrite } from "./lock.ts";
 import { getNode, loadNodes } from "./nodes.ts";
 import { loadState, type State } from "./state.ts";
-import { checkProject, formatIssues } from "./trace.ts";
+import { checkProject, formatIssues, nextIds } from "./trace.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
@@ -29,7 +29,8 @@ const USAGE = `사용법: 4dd <명령>
   init <폴더> [--from <원본>] [--no-install]   시험 프로젝트를 새 git 저장소로 만들고 훅과 기준 해시를 건다
   setup codex [--codex-home 폴더]               Codex 사용자 설정(~/.codex/hooks.json)에 4DD 훅을 한 번 넣는다
   status [폴더]                                지금 작업과 노드, 기다리는 이유
-  check trace [폴더]                           추적 ID(R, @S, T)가 이어져 있는지
+  check trace [폴더] [--stage 0]               추적 ID(R, @S, T)가 이어져 있고 프로젝트 전체에서 겹치지 않는지 (--stage 0은 요구사항과 시나리오만)
+  ids [폴더] [--json]                          프로젝트에서 다음에 쓸 R, S, T 번호
   check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
   check bash <명령>                            셸 명령에 하네스만 할 수 있는 git 명령이 있는지
   check hook --tool <claude|codex>             훅 입구 (표준 입력의 훅 JSON을 읽음)
@@ -80,9 +81,9 @@ function err(text: string): void {
   if (text) process.stderr.write(text.endsWith("\n") ? text : text + "\n");
 }
 
-function checkTrace(dir: string | undefined): number {
+function checkTrace(dir: string | undefined, stage0 = false): number {
   const root = resolve(dir ?? ".");
-  const traces = checkProject(root);
+  const traces = checkProject(root, stage0 ? "scenarios" : "auto");
   const report = formatIssues(traces);
   const errors = traces.reduce((n, t) => n + t.issues.filter((i) => i.level === "error").length, 0);
   const summary = traces.map((t) => `${t.dir}: 요구사항 ${t.requirements.length} · 시나리오 ${t.scenarios.length} · 작업 ${t.tasks.length}`).join("\n");
@@ -125,7 +126,7 @@ function check(sub: string | undefined, args: string[]): number {
   const { pos, opt } = parseArgs(args);
   switch (sub) {
     case "trace":
-      return checkTrace(pos[0]);
+      return checkTrace(pos[0], str(opt.stage) === "0");
     case "path": {
       const nodeId = str(opt.node);
       if (!pos[0] || !nodeId) break;
@@ -291,6 +292,12 @@ function main(argv: string[]): number {
       return 0;
     }
     if (cmd === "status") return status(rest[0]);
+    if (cmd === "ids") {
+      const { pos, opt } = parseArgs(rest);
+      const n = nextIds(resolve(str(opt.root) ?? pos[0] ?? "."));
+      out(opt.json ? JSON.stringify(n) : `다음 ID: R${n.R} · S${n.S} · T${n.T}`);
+      return 0;
+    }
     if (cmd === "check") return check(rest[0], rest.slice(1));
     if (cmd === "gate") return gate(rest);
     if (cmd === "context") return context(rest);

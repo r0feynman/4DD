@@ -16,6 +16,22 @@
 | 8 | `4dd report` | 끝 |
 | 9 | 완료 기준 전체를 Claude와 Codex로 | 끝: 두 도구 모두 T1~T3을 사람 개입 없이 |
 
+### 조각 2 ([명세](../docs/harness-slice2.md))
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | 프로젝트 전체 ID(`4dd ids`, 겹침 검사, `--stage 0`)와 시험 프로젝트 `login-reset` | 끝 |
+| 2 | `nodes.yaml` 넓히기: N01~N15, 사람 노드, 스테이지 세션, 리뷰 관문, 승인과 패킷 | |
+| 3 | 원장과 상태: `review`, `packet`, 넓힌 `human` | |
+| 4 | 사람 명령: `4dd story`, `4dd review`, `4dd human approve·reject --review` | |
+| 5 | 노드 지시문과 `4dd context`의 새 읽을거리 | |
+| 6 | 지휘 루프: Stage 0 → 1 → 2 | |
+| 7 | PO 창구 스킬 `4dd-po`와 검토 페이지 게시 | |
+| 8 | `4dd report`에 더하는 질의 | |
+| 9 | 완료 기준 전체 | |
+
+전체 조각과 순서는 [하네스 설계의 「구현 조각」](../docs/harness-design.md#구현-조각)에 있습니다.
+
 ## 폴더
 
 ```
@@ -46,6 +62,8 @@ nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
 test/                       하네스 테스트
 fixtures/login-backend/     시험 프로젝트 원본 (4dd init이 복사해서 돌림)
+fixtures/login-reset/       로그인이 끝난 시험 프로젝트 (조각 2, 두 번째 기능을 더함)
+fixtures/login-reset.story.md  조각 2 시험 스토리 (PO 창구가 4dd story로 넣음)
 ```
 
 ## 쓰는 법

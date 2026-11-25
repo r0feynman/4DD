@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkFeatureDir, checkProject, parseFeature, scenariosForTask, type TraceIssue } from "../src/trace.ts";
+import { checkFeatureDir, checkProject, nextIds, parseFeature, scenariosForTask, type TraceIssue } from "../src/trace.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = join(here, "..", "fixtures", "login-backend");
@@ -117,6 +117,59 @@ describe("잘못된 추적 ID를 잡는다", () => {
   it("파일이 빠짐", () => {
     const dir = featureDir({ "spec.md": SPEC, "tasks.md": TASKS });
     expect(errors(checkFeatureDir(dir).issues).map((i) => i.message)).toContain("시나리오 파일(.feature)이 없습니다");
+  });
+});
+
+describe("프로젝트 전체 ID (조각 2)", () => {
+  const resetFixture = join(here, "..", "fixtures", "login-reset");
+  const project = (features: Record<string, Record<string, string>>) => {
+    const files: Record<string, string> = {};
+    for (const [name, fs] of Object.entries(features)) for (const [f, t] of Object.entries(fs)) files[`specs/${name}/${f}`] = t;
+    return featureDir(files);
+  };
+  const RESET_SPEC = "# 스펙\n- R3 재설정 링크\n";
+  const RESET_FEATURE = "기능: 재설정\n\n  @S3 @R3\n  시나리오: 링크로 바꿈\n    만일 바꾸면\n";
+  const RESET_TASKS = "- [ ] T3 재설정 API (R3)\n";
+
+  it("로그인이 끝난 시험 프로젝트(login-reset)는 통과하고, 다음 ID는 R4·S4·T4다", () => {
+    const traces = checkProject(resetFixture);
+    expect(traces.flatMap((t) => t.issues)).toEqual([]);
+    expect(traces[0].tasks.every((t) => t.done)).toBe(true);
+    expect(nextIds(resetFixture)).toEqual({ R: 4, S: 4, T: 4 });
+  });
+
+  it("기능이 둘이어도 ID가 겹치지 않으면 통과한다", () => {
+    const root = project({ login: { "spec.md": SPEC, "login.feature": FEATURE, "tasks.md": TASKS }, reset: { "spec.md": RESET_SPEC, "reset.feature": RESET_FEATURE, "tasks.md": RESET_TASKS } });
+    expect(checkProject(root).flatMap((t) => errors(t.issues))).toEqual([]);
+    expect(nextIds(root)).toEqual({ R: 4, S: 4, T: 4 });
+  });
+
+  it("다른 기능과 겹치는 요구사항·시나리오·작업 ID를 뒤 기능의 오류로 잡는다", () => {
+    const root = project({
+      login: { "spec.md": SPEC, "login.feature": FEATURE, "tasks.md": TASKS },
+      reset: { "spec.md": RESET_SPEC.replace("R3", "R2"), "reset.feature": RESET_FEATURE.replace("@S3 @R3", "@S1 @R2"), "tasks.md": RESET_TASKS.replace("T3 재설정 API (R3)", "T2 재설정 API (R2)") },
+    });
+    const [login, reset] = checkProject(root);
+    expect(errors(login.issues)).toEqual([]);
+    const msgs = errors(reset.issues).map((i) => i.message);
+    for (const id of ["R2", "S1", "T2"]) expect(msgs).toContain(`${id}가 다른 기능(specs/login)에도 있습니다. ID는 프로젝트 전체에서 한 번만 씁니다`);
+  });
+
+  it("작업 목록이 아직 없는 기능(N14 전)은 scenarios 범위로 보고, auto는 주의만 남긴다", () => {
+    const root = project({ reset: { "spec.md": RESET_SPEC, "reset.feature": RESET_FEATURE } });
+    expect(errors(checkProject(root, "scenarios")[0].issues)).toEqual([]);
+    const auto = checkProject(root)[0];
+    expect(errors(auto.issues)).toEqual([]);
+    expect(warnings(auto.issues).map((i) => i.message)).toContain("아직 작업 목록(tasks.md)이 없어 요구사항과 시나리오만 봤습니다 (N14 전)");
+    expect(errors(checkProject(root, "full")[0].issues).map((i) => i.message)).toContain("tasks.md이 없습니다");
+  });
+
+  it("스토리만 있는 기능 폴더는 검사하지 않고, 다음 ID는 형식이 틀린 파일도 훑어 정한다", () => {
+    const root = project({ login: { "spec.md": SPEC, "login.feature": FEATURE, "tasks.md": TASKS }, reset: { "story.md": "재설정하고 싶어요\n" } });
+    expect(checkProject(root).map((t) => t.dir)).toEqual(["specs/login"]);
+    const broken = project({ login: { "spec.md": SPEC + "- R7 나중\n", "login.feature": FEATURE, "tasks.md": TASKS } });
+    expect(nextIds(broken).R).toBe(8);
+    expect(nextIds(featureDir({}))).toEqual({ R: 1, S: 1, T: 1 });
   });
 });
 
