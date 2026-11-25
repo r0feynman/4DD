@@ -299,6 +299,44 @@ h3.sub { margin: 22px 0 10px; font-size: 16px; }
 .less-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 22px minmax(0, 1.6fr); gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; word-break: keep-all; overflow-wrap: anywhere; }
 .less-row .before { color: var(--muted); }
 .less-row .arrow { color: var(--muted); text-align: center; font-size: 18px; }
+/* 자기 개선용 온톨로지 (하네스 페이지) */
+.onto-def { display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1.3fr) 24px minmax(0, 1fr); gap: 8px; align-items: stretch; margin-top: 12px; }
+.od-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; font-size: 13.5px; }
+.od-box .k { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.od-box b { font-weight: 600; }
+.od-box small { color: var(--muted); font-size: 12.5px; }
+.od-box.od-key { border: 2px solid var(--fg); }
+.od-op { align-self: center; text-align: center; font-size: 20px; font-weight: 700; color: var(--muted); }
+.otypes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.otype { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; font-size: 13px; }
+.otype code { font-size: 11.5px; color: var(--muted); }
+.otype .d { color: var(--fg); }
+.otype small { color: var(--muted); font-size: 12px; }
+.otype.ot-hub { --c: var(--fg); border: 2px solid var(--fg); border-top-width: 4px; }
+.orels { display: flex; flex-direction: column; gap: 6px; }
+.orel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.orel .os, .orel .oo { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.orel .ov { color: var(--muted); display: flex; align-items: center; gap: 6px; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.orel .ov i { font-style: normal; font-size: 16px; margin-left: auto; }
+.otag { display: inline-block; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 5px; padding: 1px 8px; font-size: 12.5px; word-break: keep-all; overflow-wrap: anywhere; }
+.otag.ot-hub { border-color: var(--fg); font-weight: 700; }
+.otag.c-human { border-color: var(--c); background: var(--cb); color: var(--c); }
+.recs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.rec { background: var(--surface); border: 1px dashed var(--muted); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.rec > b { font-family: var(--font-mono); font-size: 12.5px; }
+.rfs { display: flex; flex-wrap: wrap; gap: 4px; }
+.rf { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; overflow-wrap: anywhere; }
+.rf i { font-style: normal; color: var(--muted); margin-right: 5px; }
+.rf.bad { border-color: var(--tdd); color: var(--tdd); }
+.ochips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ochip { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--c); background: var(--cb); color: var(--c); border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; }
+.ochip small { font-family: var(--font-mono); font-size: 11px; font-weight: 400; opacity: .85; }
+.orel-art { margin: 10px 0 0; padding-left: 18px; columns: 2; column-gap: 28px; font-size: 13px; color: var(--muted); }
+.orel-art li { break-inside: avoid; margin-bottom: 2px; }
+h3.sub + .route-note { margin: 0 0 10px; }
+.onto-cards .card .k { font-family: var(--font-body); font-size: 12.5px; font-weight: 700; letter-spacing: 0; }
+.onto-rules { margin: 12px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); max-width: 72ch; }
+.onto-rules li { margin-bottom: 4px; }
 .pipeline .step { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; word-break: keep-all; overflow-wrap: anywhere; }
 .pipeline .step .when { font-size: 12.5px; color: var(--muted); }
 .pipeline .step .do { font-size: 13px; }
@@ -378,6 +416,11 @@ details.source[open] summary { margin-bottom: 12px; }
   .less-row { grid-template-columns: 1fr; gap: 4px; }
   .less-row .arrow { display: none; }
   .less-row .before::after { content: " →"; }
+  .onto-def { grid-template-columns: 1fr; }
+  .od-op { transform: rotate(90deg); padding: 0; line-height: 1; }
+  .orel { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  .orel .ov i { margin-left: 0; }
+  .orel-art { columns: 1; }
   .pipeline .sep { transform: rotate(90deg); padding: 2px 0; }
   .meter, .dec { grid-template-columns: 1fr; gap: 6px; }
   .stack .layer { grid-template-columns: 1fr; gap: 4px; }
