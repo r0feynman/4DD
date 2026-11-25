@@ -592,6 +592,132 @@ def page_workflow(ctx):
 
 # ---------------------------------------------------------------- 페이지: 하네스 설계
 
+ART_COLOR = {
+    "Story": "sdd", "Requirement": "sdd", "Task": "sdd", "Scenario": "bdd", "Frame": "fig", "Component": "fig",
+    "Test": "tdd", "Commit": "tdd", "Feedback": "scrum", "DoneCondition": "scrum", "Decision": "human",
+}
+
+
+def onto_section(ctx, hd):
+    """설계 ③ 자기 개선용 온톨로지: 기록 + 온톨로지 → 질의, 하네스 실행 타입, 기록 한 줄, 관계, 개발 산출물, 찾아내는 것."""
+    sec = section(hd, "## 설계 ③")
+    intro = sec.split("\n### ")[0]
+    paras = [p.strip() for p in intro.split("\n\n") if p.strip() and not p.lstrip().startswith("-")]
+    bb = bold_bullets(intro)
+    if len(bb) < 4 or len(paras) < 2:
+        raise BuildError("설계 ③ 첫머리에서 굵은 목록 넷(기록, 온톨로지, 하네스 실행, 개발 산출물)을 찾지 못했습니다")
+    (rec_k, rec_v), (ont_k, ont_v), (run_k, run_v), (art_k, art_v) = bb[:4]
+
+    def head_rest(text):
+        head, _, rest = text.partition(". ")
+        return (head + ("." if rest else ""), rest)
+
+    def def_box(k, v, cls=""):
+        h, rest = head_rest(v)
+        return f'<div class="od-box{cls}"><span class="k">{inline(k)}</span><b>{inline(h)}</b>{f"<small>{inline(rest)}</small>" if rest else ""}</div>'
+
+    find_sec = section(hd, "### 반복 실수와 비효율 찾기")
+    find_lead = next((p for p in find_sec.strip().split("\n\n") if not p.lstrip().startswith(("|", "-"))), "")
+    defs = (def_box(rec_k, rec_v) + '<span class="od-op" aria-hidden="true">+</span>' + def_box(ont_k, ont_v, " od-key")
+            + '<span class="od-op" aria-hidden="true">→</span>'
+            + f'<div class="od-box"><span class="k">질의</span><b>{chipify(ctx, find_lead)}</b></div>')
+
+    def split_name(cell):
+        m = re.match(r"^(.*?)\s*\(`(\w+)`(?:,\s*ID\s*`(\w+)`)?\)\s*$", cell.strip())
+        if not m:
+            raise BuildError(f"타입 이름 꼴(이름 (`Code`))이 아닙니다: {cell}")
+        return m.group(1), m.group(2), m.group(3)
+
+    def tag(text):
+        t = text.strip()
+        cls = " c-human" if "사람 개입" in t else (" ot-hub" if t == "노드 실행" else "")
+        return f'<span class="otag{cls}">{inline(t)}</span>'
+
+    type_sec = section(hd, "### 엔티티 타입")
+    types = []
+    for r in first_table(hd, "### 엔티티 타입"):
+        name, code, _ = split_name(r["타입"])
+        cls = "c-human" if code == "HumanIntervention" else ("ot-hub" if code == "NodeRun" else "c-plain")
+        types.append(f'<div class="otype {cls}"><b>{inline(name)}</b><code>{esc(code)}</code><span class="d">{inline(r["뜻"])}</span><small>{inline(r["어디서 자동으로 뽑나"])}</small></div>')
+
+    art_part = type_sec.split("**개발 산출물**", 1)
+    if len(art_part) < 2:
+        raise BuildError("엔티티 타입에서 「개발 산출물」 목록을 찾지 못했습니다")
+    chips = []
+    for line in art_part[1].splitlines():
+        if line.startswith("- "):
+            name, code, tid = split_name(line[2:])
+            chips.append(f'<span class="ochip c-{ART_COLOR.get(code, "plain")}">{inline(name)}<small>{esc(code)}{" · " + esc(tid) if tid else ""}</small></span>')
+
+    rels = "".join(
+        f'<div class="orel"><span class="os">{"".join(tag(x) for x in r["주체"].split(", "))}</span>'
+        f'<span class="ov">{inline(r["관계"])}<i aria-hidden="true">→</i></span>'
+        f'<span class="oo">{"".join(tag(x) for x in r["대상"].split(", "))}</span></div>'
+        for r in first_table(hd, "### 관계")
+    )
+    rel_part = section(hd, "### 관계").split("**개발 산출물**", 1)
+    if len(rel_part) < 2:
+        raise BuildError("관계에서 「개발 산출물」 목록을 찾지 못했습니다")
+    art_rels = "".join(f"<li>{inline(l[2:])}</li>" for l in rel_part[1].splitlines() if l.startswith("- "))
+
+    m = re.search(r"```json\n(.*?)```", section(hd, "### 하네스 실행 기록"), flags=re.S)
+    if not m:
+        raise BuildError("하네스 실행 기록의 json 예시를 찾지 못했습니다")
+    dec, txt, pos, recs = json.JSONDecoder(), m.group(1), 0, []
+    while True:
+        while pos < len(txt) and txt[pos].isspace():
+            pos += 1
+        if pos >= len(txt):
+            break
+        obj, pos = dec.raw_decode(txt, pos)
+        recs.append(obj)
+
+    def rec_html(o):
+        fields = []
+        for k, v in o.items():
+            if k == "type":
+                continue
+            if isinstance(v, list):
+                v = " · ".join(f'{x.get("kind", "")} {x.get("id", "")}'.strip() if isinstance(x, dict) else str(x) for x in v)
+            bad = " bad" if v in ("fail", "blocked") else ""
+            fields.append(f'<span class="rf{bad}"><i>{esc(k)}</i>{esc(str(v))}</span>')
+        return f'<div class="rec"><b>{esc(o.get("type", ""))}</b><div class="rfs">{"".join(fields)}</div></div>'
+
+    rec_rules = "".join(
+        f'<div class="card top c-plain"><span class="k">{inline(k)}</span><span class="d">{inline(v)}</span></div>'
+        for k, v in bold_bullets(section(hd, "### 하네스 실행 기록"))
+    )
+
+    finds = []
+    for r in first_table(hd, "### 반복 실수와 비효율 찾기"):
+        k, _, d = r["찾아내는 것"].partition(":")
+        c = "c-human" if "사람 개입" in k else "c-plain"
+        finds.append(f'<div class="card top {c}"><span class="k">{inline(k.strip())}</span><span class="t">{chipify(ctx, r["질문"])}</span>{f"<span class=d>{inline(d.strip())}</span>" if d.strip() else ""}</div>')
+    find_rules = "".join(f"<li>{chipify(ctx, l[2:])}</li>" for l in find_sec.splitlines() if l.startswith("- "))
+
+    return f"""
+<section>
+  <h2>자기 개선용 온톨로지</h2>
+  <p>{inline(paras[0])}</p>
+  <div class="onto-def">{defs}</div>
+  <h3 class="sub">{inline(run_k)}</h3>
+  <p class="route-note">{inline(run_v)}</p>
+  <div class="otypes">{"".join(types)}</div>
+  <h3 class="sub">관계</h3>
+  <div class="orels">{rels}</div>
+  <h3 class="sub">원장에 남는 한 줄</h3>
+  <div class="recs">{"".join(rec_html(o) for o in recs)}</div>
+  <div class="cards onto-cards">{rec_rules}</div>
+  <h3 class="sub">{inline(art_k)}</h3>
+  <p class="route-note">{inline(art_v)} {chipify(ctx, paras[-1])}</p>
+  <div class="ochips">{"".join(chips)}</div>
+  <ul class="orel-art">{art_rels}</ul>
+  <h3 class="sub">반복 실수와 비효율 찾기</h3>
+  <div class="cards onto-cards">{"".join(finds)}</div>
+  <ul class="onto-rules">{find_rules}</ul>
+</section>"""
+
+
 def page_harness(ctx):
     hd = read("docs/harness-design.md")
     palette = ["bdd", "sdd", "scrum", "tdd", "fig"]
@@ -667,6 +793,7 @@ def page_harness(ctx):
         f'<div class="less-row"><b>{inline(r["지점"])}</b><span class="before">{inline(r["전"])}</span><span class="arrow" aria-hidden="true">→</span><span class="after">{inline(r["후"])}</span></div>'
         for r in first_table(hd, "### 사람 승인 줄이기")
     )
+    onto_html = onto_section(ctx, hd)
 
     body = f"""
 <header>
@@ -705,6 +832,7 @@ def page_harness(ctx):
   <h2>승인 3층</h2>
   <div class="tiers">{tiers}</div>
 </section>
+{onto_html}
 <section>
   <h2>스스로 개선하는 루프</h2>
   <p>루프마다 실패와 사람 개입에서 배우고, 바꾼 것이 정말 나아졌는지 시험한 뒤에만 규칙으로 올립니다.</p>
