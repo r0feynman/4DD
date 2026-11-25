@@ -1,0 +1,30 @@
+name: harness
+
+# 하네스(harness/)의 테스트와 타입 검사, 시험 프로젝트의 추적 검사를 돌린다.
+on:
+  pull_request:
+    paths: ["harness/**", "templates/**", ".github/workflows/harness.yml"]
+  push:
+    branches: [main]
+    paths: ["harness/**", "templates/**", ".github/workflows/harness.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: harness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: harness/package-lock.json
+      - run: npm ci
+      - name: 하네스 테스트
+        run: npm test
+      - name: 타입 검사
+        run: npm run typecheck
+      - name: 시험 프로젝트 추적 검사
+        run: node src/cli.ts check trace fixtures/login-backend
