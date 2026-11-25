@@ -44,6 +44,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     cause: Cause.optional(),
     /** N29에서 작업을 끝냈을 때 true */
     task_done: z.boolean().optional(),
+    /** 이 차례가 쓴 작업 세션 ID (Codex는 첫 차례가 끝나야 안다) */
+    session: z.string().min(1).nullable().optional(),
     loaded: z.array(Loaded).default([]),
     tokens: z.strictObject({ input: z.number().int().min(0), output: z.number().int().min(0), cached: z.number().int().min(0).optional() }).optional(),
     cost_usd: z.number().min(0).optional(),

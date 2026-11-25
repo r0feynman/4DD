@@ -1,6 +1,6 @@
 # 하네스 첫 구현 조각 명세
 
-> **상태 (2026-11-25):** 오너가 실행 방식, 구현 언어, 시험 대상, 코드 위치를 정했고, 이 명세를 바탕으로 구현을 시작했습니다. 구현 1단계(시험 프로젝트와 추적 ID 검사), 2단계(노드 정의, 원장, `state.json`), 3단계(`4dd check`와 훅, `4dd init`), 4단계(관문)를 마쳤고, 진행은 [harness/README.md](../harness/README.md)에 적습니다. 설계의 근거는 [harness-design.md](harness-design.md)에 있고, 이 문서는 그 설계를 코드로 옮기는 방법만 적습니다.
+> **상태 (2026-11-25):** 오너가 실행 방식, 구현 언어, 시험 대상, 코드 위치를 정했고, 이 명세를 바탕으로 구현을 시작했습니다. 구현 1단계(시험 프로젝트와 추적 ID 검사), 2단계(노드 정의, 원장, `state.json`), 3단계(`4dd check`와 훅, `4dd init`), 4단계(관문), 5단계(도구 어댑터, Codex는 훅 신뢰 대기)를 마쳤고, 진행은 [harness/README.md](../harness/README.md)에 적습니다. 설계의 근거는 [harness-design.md](harness-design.md)에 있고, 이 문서는 그 설계를 코드로 옮기는 방법만 적습니다.
 
 **구현 조각**은 하네스 전체를 한 번에 만들지 않고, 처음부터 끝까지 실제로 도는 작은 범위로 잘라 만든 것입니다. 첫 조각은 **백엔드 기능 하나가 Stage 2(N21~N29)를 사람 손 없이 도는 것**입니다. Figma와 에뮬레이터는 가장 불확실한 부분이라 빼고, 핵심 루프(상태, 관문, 횟수 제한, 원장)부터 싸게 검증합니다. 하네스 설계에서 정한 첫 구현 범위(MVP, 원장 기록과 지표 보고)도 이 조각에 들어갑니다. 그 기록을 만들어 낼 최소한의 루프를 함께 만드는 셈입니다.
 
@@ -172,6 +172,8 @@ locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".
 | 명령 | 누가 부르나 | 하는 일 | 종료 코드 |
 |---|---|---|---|
 | `4dd init <폴더>` | 사람 | 시험 프로젝트 복사, 훅 설치, 잠긴 파일 해시 고정, `.4dd/` 만들기 | 0 성공 · 1 오류 |
+| `4dd setup codex` | 사람 (한 번) | Codex 사용자 설정(`~/.codex/hooks.json`)에 4DD 훅을 넣음. 다른 훅은 그대로 둠 | 0 |
+| `4dd turn <노드> --task <작업>` | 사람 (점검용) | 작업 세션 노드 한 차례만 돌림 | 0 통과 · 1 실패 |
 | `4dd run [--agent claude\|codex]` | 사람 | 지휘 루프. 끝나거나 사람이 필요할 때까지 돎 | 0 끝 · 3 사람 대기 · 1 오류 |
 | `4dd status` | 사람 | 지금 작업과 노드, 기다리는 이유 | 0 |
 | `4dd human <approve\|hint\|reclassify\|hold>` | 사람 | 사람 개입을 원장에 남기고 재개할 수 있게 함 | 0 · 1 잘못된 입력 |
@@ -187,14 +189,16 @@ locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".
 | | Claude | Codex |
 |---|---|---|
 | 첫 차례 | `claude -p --output-format json --session-id <uuid>` | `codex exec --json -C <폴더> -s workspace-write` |
-| 이어 쓰기 | `claude -p --resume <uuid>` | `codex exec resume <id>` |
+| 이어 쓰기 | `claude -p --resume <uuid>` | `codex exec resume <id> --json` (프로젝트 폴더에서 실행) |
+| 설정 격리 | `--setting-sources project`, `--strict-mcp-config`, `--disable-slash-commands`, 도구는 `Read,Edit,Write,Glob,Grep,Bash`만 | 사용자 설정을 그대로 씀 (훅이 거기 있음) |
 | 리뷰 세션 | `--allowedTools Read Grep Glob`, `--json-schema` | `-s read-only`, `--output-schema` |
-| 훅 넣기 | `--settings .4dd/hooks/claude.json` (`4dd init`이 만듦, PreToolUse·SessionStart) | 프로젝트 `.codex/hooks.json` (`4dd init`이 만듦, PreToolUse·SessionStart) |
-| 토큰과 시간 | 결과 JSON의 사용량과 걸린 시간 | `--json` 이벤트의 사용량 |
+| 훅 넣기 | `--settings .4dd/hooks/claude.json` (`4dd init`이 만듦, PreToolUse·SessionStart) | 사용자 설정 `~/.codex/hooks.json` (`4dd setup codex`로 한 번, PreToolUse·SessionStart) |
+| 토큰과 시간 | 결과 JSON의 `usage`(입력, 캐시 만들기·읽기, 출력), `total_cost_usd`, `num_turns` | `turn.completed` 이벤트의 `usage`(입력에 캐시 읽기가 들어 있음) |
 | 막는 명령 | `--disallowedTools "Bash(git commit:*)" "Bash(git push:*)"`, 그리고 셸 명령 훅 | 셸 명령 훅 |
 
 - **파일 경로 읽기:** Claude의 편집 도구는 `tool_input.file_path`, Codex의 `apply_patch`는 `tool_input.command` 안의 패치 머리(`*** Update File: …`)에서 경로를 읽습니다.
-- **Codex 훅 신뢰:** Codex는 신뢰하지 않은 훅을 건너뜁니다. `4dd init`이 사람에게 `/hooks`에서 한 번 신뢰하라고 안내하고, 세션 시작 훅이 원장에 한 줄(`check: session`)을 남기게 합니다. 첫 차례 뒤 그 줄이 없으면 훅이 꺼진 것이므로 `env`로 멈춥니다. 신뢰 확인을 건너뛰는 옵션은 쓰지 않습니다.
+- **하위 에이전트의 환경:** 하네스를 띄운 도구(Claude Code 데스크톱 등)의 `CLAUDE*`, `ANTHROPIC_*` 환경 변수는 빼고 넘깁니다. 그중 `CLAUDE_CODE_SIMPLE`은 훅을 끄는 최소 모드라서, 그대로 넘기면 하네스 훅이 돌지 않습니다.
+- **Codex 훅 위치와 신뢰:** Codex는 신뢰하지 않은 프로젝트의 설정(`.codex/hooks.json` 포함)을 아예 읽지 않습니다(2026-11-25 실제 실행으로 확인). 하네스는 실행할 때마다 새 프로젝트 폴더를 만들므로, 프로젝트마다 신뢰받는 대신 사용자 설정에 4DD 훅을 한 번 넣고(`4dd setup codex`) 사람이 `/hooks`에서 한 번 신뢰합니다. 이 훅은 하네스가 띄운 세션(`FOURDD_NODE`가 있을 때)에서만 동작하고 다른 Codex 세션에서는 아무것도 하지 않습니다. 세션 시작 훅이 원장에 한 줄(`check: session`)을 남기고, 첫 차례 뒤 그 줄이 없으면 훅이 꺼진 것이므로 멈춥니다. 신뢰 확인을 건너뛰는 옵션은 쓰지 않습니다.
 - **차례 시간 제한:** 한 차례가 `turn_timeout_min`(15분)을 넘으면 끊고 `env`로 기록합니다.
 
 ## 잠금을 지키는 겹
@@ -282,10 +286,10 @@ Claude로 단계 6까지 먼저 끝내고 Codex 어댑터를 붙입니다. 한 �
 
 ## 구현하며 확인할 것
 
-- **Claude 결과 JSON:** 사용량과 걸린 시간의 정확한 필드 이름 (단계 5에서 실제 출력으로 확인하고 어댑터 테스트에 고정)
-- **Codex 이벤트와 이어 쓰기:** `--json` 이벤트 이름, 세션 ID를 얻는 이벤트, `codex exec resume`에 옵션을 넘기는 순서
-- **Codex 훅과 비대화형 실행:** `codex exec`에서 프로젝트 `.codex/hooks.json`이 읽히는지와 신뢰가 유지되는지
-- **Codex 셸 명령 막기:** PreToolUse가 `Bash`로 잡히므로, `4dd check bash`가 `git commit`, `git push`를 막는지
+- **Claude 결과 JSON (확인함):** `session_id`, `usage`, `total_cost_usd`, `num_turns`, `result`. 실제 N22 한 차례가 0.27분, 세션 안 차례 4번, 토큰 입력 6,607 · 캐시 읽기 37,411 · 출력 960, 표시 가격 $0.08로 통과했고 훅 기록 두 줄(세션 시작, 편집 허용)이 원장에 남았습니다. 어댑터 테스트에 고정했습니다.
+- **Codex 이벤트 (확인함):** `thread.started`의 `thread_id`가 세션 ID, `item.completed`의 `agent_message`가 마지막 답, `turn.completed`의 `usage`가 토큰입니다. `codex exec resume`에는 폴더와 샌드박스 옵션이 없어 프로젝트 폴더에서 부릅니다.
+- **Codex 훅과 비대화형 실행 (남음):** 프로젝트의 `.codex/hooks.json`은 읽히지 않는 것을 확인했습니다. 사용자 설정에 넣은 훅을 사람이 신뢰한 뒤 `codex exec`에서 도는지 확인해야 합니다.
+- **Codex 셸 명령 막기 (남음):** 위가 확인되면, PreToolUse가 `Bash`로 잡혀 `git commit`, `git push`를 막는지 봅니다.
 
 ## 다음 조각
 

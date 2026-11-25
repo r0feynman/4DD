@@ -239,5 +239,7 @@ export function runGate(ctx: GateContext): GateOutcome {
   if (cause === "env") lines.push("명령을 실행하지 못했거나 시간 제한을 넘었습니다: 실행 환경 문제입니다 (env)");
   for (const c of checks) if (!c.ok) lines.push(c.detail);
   const summary = passed ? `${ctx.nodeId} 관문 통과` : `${ctx.nodeId} 관문 실패\n- ${lines.join("\n- ")}`;
+  mkdirSync(join(ctx.root, GATE_DIR), { recursive: true });
+  writeFileSync(join(ctx.root, GATE_DIR, `${ctx.runId}.summary.md`), summary + "\n", "utf8");
   return { node: ctx.nodeId, passed, ...(cause ? { cause } : {}), runs, checks, summary };
 }

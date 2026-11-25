@@ -40,18 +40,19 @@ beforeAll(() => {
 
 describe("4dd init", () => {
   it("훅, 기준 해시, 첫 커밋을 만든다", () => {
-    for (const f of [".4dd/hooks/claude.json", ".codex/hooks.json", ".githooks/pre-commit", ".4dd/baseline.json"]) {
+    for (const f of [".4dd/hooks/claude.json", ".githooks/pre-commit", ".4dd/baseline.json"]) {
       expect(existsSync(join(root, f)), f).toBe(true);
     }
+    // Codex 훅은 프로젝트가 아니라 사용자 설정에 한 번 넣는다 (4dd setup codex)
+    expect(existsSync(join(root, ".codex/hooks.json"))).toBe(false);
     const claude = JSON.parse(readFileSync(join(root, ".4dd/hooks/claude.json"), "utf8"));
     expect(claude.hooks.PreToolUse[0].matcher).toBe("Edit|Write|MultiEdit|NotebookEdit|Bash");
     expect(claude.hooks.PreToolUse[0].hooks[0].command).toContain("check hook --tool claude");
-    expect(JSON.parse(readFileSync(join(root, ".codex/hooks.json"), "utf8")).hooks.PreToolUse[0].matcher).toBe("apply_patch|Bash");
     expect(git(root, ["config", "core.hooksPath"]).trim()).toBe(".githooks");
     expect(git(root, ["log", "--format=%s"]).trim()).toBe("4dd init");
     expect(git(root, ["status", "--porcelain"]).trim()).toBe("");
     const baseline = JSON.parse(readFileSync(join(root, ".4dd/baseline.json"), "utf8"));
-    expect(Object.keys(baseline)).toEqual(expect.arrayContaining(["specs/login/spec.md", "specs/login/login.feature", "4dd.config.yaml", ".codex/hooks.json"]));
+    expect(Object.keys(baseline)).toEqual(expect.arrayContaining(["specs/login/spec.md", "specs/login/login.feature", "4dd.config.yaml", ".githooks/pre-commit"]));
   });
 
   it("비어 있지 않은 폴더에는 만들지 않는다", () => {

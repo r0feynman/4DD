@@ -97,6 +97,7 @@ export function reduce(prev: State, e: LedgerEvent): State {
       break;
     case "node_end":
       if (e.task) enterTask(s, e.task);
+      if (e.session) s.session = e.session;
       if (e.result === "fail") {
         s.fails[e.node] = (s.fails[e.node] ?? 0) + 1;
         s.task_backtracks += 1;

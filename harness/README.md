@@ -10,7 +10,8 @@
 | 2 | 뼈대: `nodes.yaml`, 원장, `state.json` | 끝 |
 | 3 | `4dd check`와 훅 (Claude, Codex, git), `4dd init` | 끝 |
 | 4 | 관문 (N22~N26, N28) | 끝 |
-| 5 | 도구 어댑터 (Claude, Codex) | 다음: 실제 에이전트 실행이 시작되어 오너 확인 뒤 진행 |
+| 5 | 도구 어댑터 (Claude, Codex) | Claude 끝. Codex는 훅 신뢰 뒤 확인 |
+| 6 | 지휘 루프 `4dd run` | 다음 |
 
 ## 폴더
 
@@ -29,6 +30,10 @@ src/git.ts                  git 부르기
 src/init.ts                 4dd init
 src/gate.ts                 관문: 명령 실행, 추가 검사, test_flaky·env 판정
 src/testscan.ts             소스에서 테스트 수와 건너뛰기 표시 세기
+src/context.ts              세션에 보낼 지시문과 「이번 작업」 모으기
+src/adapters.ts             도구 어댑터: Claude(claude -p), Codex(codex exec)
+src/turn.ts                 작업 세션 노드 한 차례
+src/setup.ts                4dd setup codex (사용자 설정에 Codex 훅)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
 test/                       하네스 테스트
@@ -48,6 +53,9 @@ node src/cli.ts status <프로젝트 폴더>
 node src/cli.ts init <새 폴더>          # 시험 프로젝트를 새 git 저장소로
 node src/cli.ts check path specs/login/spec.md --node N22 --root <프로젝트 폴더>
 node src/cli.ts gate N24 --task T1 --run NR1 --root <프로젝트 폴더>
+node src/cli.ts context N22 --task T1 --root <프로젝트 폴더>
+node src/cli.ts turn N22 --task T1 --agent claude --root <프로젝트 폴더>   # 실제 에이전트를 돌림 (사용량이 듦)
+node src/cli.ts setup codex                                              # 한 번만. 그다음 codex에서 /hooks로 신뢰
 ```
 
 `4dd check`의 종료 코드는 0 통과, 2 막음, 1 잘못된 사용이나 오류입니다. 추적 검사의 주의는 통과로 칩니다. 전체 명령은 `node src/cli.ts`를 인자 없이 돌리면 나옵니다.

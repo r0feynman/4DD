@@ -28,11 +28,10 @@ export function hookCommand(args: string): string {
   return `${q(process.execPath)} ${q(CLI_PATH)} ${args}`;
 }
 
-function hooksJson(tool: "claude" | "codex"): string {
-  const matcher = tool === "claude" ? "Edit|Write|MultiEdit|NotebookEdit|Bash" : "apply_patch|Bash";
-  const command = hookCommand(`check hook --tool ${tool}`);
+function claudeHooksJson(): string {
+  const command = hookCommand("check hook --tool claude");
   const entry = (m?: string) => [{ ...(m ? { matcher: m } : {}), hooks: [{ type: "command", command }] }];
-  return JSON.stringify({ hooks: { PreToolUse: entry(matcher), SessionStart: entry() } }, null, 2) + "\n";
+  return JSON.stringify({ hooks: { PreToolUse: entry("Edit|Write|MultiEdit|NotebookEdit|Bash"), SessionStart: entry() } }, null, 2) + "\n";
 }
 
 export interface InitOptions {
@@ -63,16 +62,16 @@ export function initProject(dest: string, opts: InitOptions = {}): InitResult {
     throw new InitError(`추적 검사를 통과하지 못해 시작하지 않습니다:\n${formatIssues(traces)}`);
   }
 
-  // 3. 훅: Claude는 지휘 프로그램이 --settings로 넘기고, Codex는 프로젝트 .codex/hooks.json에서 읽는다.
+  // 3. 훅: Claude는 지휘 프로그램이 --settings로 넘긴다. Codex는 신뢰하지 않은 프로젝트의 설정을 읽지 않으므로
+  //    프로젝트가 아니라 사용자 설정에 한 번 넣는다 (4dd setup codex, setup.ts).
   mkdirSync(join(root, DIR, "hooks"), { recursive: true });
-  writeFileSync(join(root, DIR, "hooks", "claude.json"), hooksJson("claude"));
-  mkdirSync(join(root, ".codex"), { recursive: true });
-  writeFileSync(join(root, ".codex", "hooks.json"), hooksJson("codex"));
+  writeFileSync(join(root, DIR, "hooks", "claude.json"), claudeHooksJson());
   mkdirSync(join(root, ".githooks"), { recursive: true });
   const preCommit = join(root, ".githooks", "pre-commit");
   writeFileSync(preCommit, `#!/bin/sh\n# 4DD 잠금 검사 (4dd init이 만듦)\nexec ${hookCommand("check commit")}\n`);
   chmodSync(preCommit, 0o755);
-  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\n`);
+  // node_modules는 링크로 둘 수도 있어서(폴더가 아니면 "node_modules/"에 안 맞음) 슬래시 없이 한 번 더 적는다.
+  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\nnode_modules\n`);
 
   // 4. git 저장소. 기준 해시는 git이 아는 파일로 정하므로 저장소를 먼저 만든다.
   git(root, ["init", "-q", "-b", "main"]);

@@ -3,8 +3,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { adapterFor, type Agent } from "./adapters.ts";
 import { loadConfig } from "./config.ts";
+import { buildContext } from "./context.ts";
 import { runGate } from "./gate.ts";
+import { setupCodexHooks } from "./setup.ts";
+import { runSessionNode } from "./turn.ts";
 import { checkCommit, checkDiff } from "./guard.ts";
 import { runHook, type Tool } from "./hooks.ts";
 import { initProject } from "./init.ts";
@@ -17,6 +21,7 @@ import { checkProject, formatIssues } from "./trace.ts";
 const USAGE = `사용법: 4dd <명령>
 
   init <폴더> [--from <원본>] [--no-install]   시험 프로젝트를 새 git 저장소로 만들고 훅과 기준 해시를 건다
+  setup codex [--codex-home 폴더]               Codex 사용자 설정(~/.codex/hooks.json)에 4DD 훅을 한 번 넣는다
   status [폴더]                                지금 작업과 노드, 기다리는 이유
   check trace [폴더]                           추적 ID(R, @S, T)가 이어져 있는지
   check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
@@ -25,6 +30,8 @@ const USAGE = `사용법: 4dd <명령>
   check commit                                 git pre-commit 입구
   check diff --node <노드> [--run NR..] [--revert]  마지막 커밋 뒤 이 노드에서 고칠 수 없는 곳이 바뀌었는지
   gate <노드> --task <작업> [--run NR..] [--root 폴더]  관문을 돌리고 원장에 남긴다 (0 통과 · 1 실패)
+  context <노드> --task <작업> [--root 폴더]   세션에 보낼 지시문과 「이번 작업」을 출력
+  turn <노드> --task <작업> [--agent claude|codex] [--root 폴더]  작업 세션 노드 한 차례만 돌린다 (점검용)
 
 종료 코드: 0 통과 · 2 막음 · 1 잘못된 사용이나 오류`;
 
@@ -181,6 +188,41 @@ function gate(args: string[]): number {
   return r.passed ? 0 : 1;
 }
 
+function context(args: string[]): number {
+  const { pos, opt } = parseArgs(args);
+  const task = str(opt.task);
+  if (!pos[0] || !task) {
+    err(USAGE);
+    return 1;
+  }
+  out(buildContext({ root: resolve(str(opt.root) ?? "."), nodes: loadNodes(), nodeId: pos[0], task }).prompt);
+  return 0;
+}
+
+function turn(args: string[]): number {
+  const { pos, opt } = parseArgs(args);
+  const task = str(opt.task);
+  if (!pos[0] || !task) {
+    err(USAGE);
+    return 1;
+  }
+  const root = resolve(str(opt.root) ?? ".");
+  const config = loadConfig(root);
+  const agent = (str(opt.agent) ?? config.agent) as Agent;
+  const r = runSessionNode({ root, config, nodes: loadNodes(), nodeId: pos[0], task, adapter: adapterFor(agent) });
+  const t = r.turn;
+  const cost = [
+    `${agent} ${r.runId}: ${t.minutes}분`,
+    t.turns !== undefined ? `세션 안 차례 ${t.turns}번` : "",
+    t.tokens ? `토큰 입력 ${t.tokens.input} · 캐시 읽기 ${t.tokens.cached ?? 0} · 출력 ${t.tokens.output}` : "",
+    t.costUsd !== undefined ? `표시 가격 $${t.costUsd.toFixed(3)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  (r.passed ? out : err)(r.summary + "\n" + cost);
+  return r.passed ? 0 : 1;
+}
+
 function init(args: string[]): number {
   const { pos, opt } = parseArgs(args);
   if (!pos[0]) {
@@ -193,7 +235,7 @@ function init(args: string[]): number {
     [
       `만들었습니다: ${r.root} (첫 커밋 ${r.commit})`,
       `작업 유형 ${config.work_type} · 도구 ${config.agent} · 잠긴 파일 ${r.locked}개의 기준 해시를 고정했습니다`,
-      "Codex로 돌릴 때는 이 폴더에서 codex를 한 번 열고 /hooks에서 4DD 훅을 신뢰해 주세요",
+      "Codex로 돌릴 때는 한 번만 4dd setup codex를 하고, codex를 열어 /hooks에서 4DD 훅을 신뢰해 주세요",
     ].join("\n"),
   );
   return 0;
@@ -203,9 +245,16 @@ function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   try {
     if (cmd === "init") return init(rest);
+    if (cmd === "setup" && rest[0] === "codex") {
+      const r = setupCodexHooks(str(parseArgs(rest.slice(1)).opt["codex-home"]));
+      out(`${r.changed ? "4DD 훅을 넣었습니다" : "4DD 훅이 이미 있습니다"}: ${r.file}\n이제 codex를 열고 /hooks에서 4DD 훅을 신뢰해 주세요. 하네스가 띄운 세션에서만 동작하고 다른 Codex 세션에서는 아무것도 하지 않습니다`);
+      return 0;
+    }
     if (cmd === "status") return status(rest[0]);
     if (cmd === "check") return check(rest[0], rest.slice(1));
     if (cmd === "gate") return gate(rest);
+    if (cmd === "context") return context(rest);
+    if (cmd === "turn") return turn(rest);
   } catch (e) {
     err(`[4DD] ${(e as Error).message}`);
     return 1;
