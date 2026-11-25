@@ -353,6 +353,65 @@ h3.sub + .route-note { margin: 0 0 10px; }
 .who.w-h { background: var(--fg); color: var(--bg); border: 1px solid var(--fg); }
 .who.w-w { border: 1px solid var(--fg); color: var(--fg); }
 .who.w-r { border: 1px dashed var(--fg); color: var(--fg); }
+.who.w-p { background: var(--human-bg); color: var(--human); border: 1px solid var(--human); }
+.who-sep { color: var(--muted); font-size: 12px; margin: 0 2px; }
+.card.prop { border-style: dashed; }
+.ev-tag { font-style: normal; justify-self: start; align-self: flex-start; font-size: 11.5px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+.story-quote { margin: 0 0 4px; padding: 14px 16px; border-left: 4px solid var(--human); background: var(--human-bg); border-radius: 0 10px 10px 0; font-size: 15px; line-height: 1.6; display: flex; flex-direction: column; gap: 6px; word-break: keep-all; overflow-wrap: anywhere; }
+.story-quote .k { font-size: 12px; font-weight: 700; color: var(--human); }
+/* 구현 조각 지도 */
+.st { display: inline-block; font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+.st.st-done { background: var(--fg); color: var(--bg); border: 1px solid var(--fg); }
+.st.st-spec { border: 1px solid var(--fg); color: var(--fg); }
+.st.st-plan { border: 1px dashed var(--muted); color: var(--muted); }
+.lstep .st { align-self: flex-start; }
+.ladder { display: flex; flex-direction: column; gap: 10px; }
+.lad-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); grid-template-areas: "head bar" "head text"; column-gap: 14px; row-gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.lad-head { grid-area: head; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.lad-head b { font-size: 15px; }
+.lad-bar { grid-area: bar; height: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; align-self: center; }
+.lad-bar span { display: block; height: 100%; background: var(--fg); opacity: .25; border-radius: 999px; }
+.lad-row.st-done .lad-bar span { opacity: 1; }
+.lad-row.st-spec .lad-bar span { opacity: .55; }
+.lad-text { grid-area: text; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; word-break: keep-all; overflow-wrap: anywhere; min-width: 0; }
+.lad-name { font-weight: 700; }
+.smatrix { display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, 44px); gap: 6px; align-items: center; }
+.sm-cell { display: flex; justify-content: center; align-items: center; min-width: 0; }
+.sm-h { font-size: 11.5px; color: var(--muted); font-weight: 700; text-align: center; }
+.sm-name { flex-direction: column; align-items: flex-start; justify-content: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; word-break: keep-all; overflow-wrap: anywhere; }
+.sm-name small { color: var(--muted); font-size: 11.5px; }
+.dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--bg); }
+.dot.on { background: var(--fg); border-color: var(--fg); }
+.slice-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; margin-bottom: 12px; }
+.slice-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.slice-card.st-done { border: 2px solid var(--fg); }
+.slice-card.st-plan { border-style: dashed; }
+.slice-card header { display: flex; gap: 10px; align-items: center; }
+.slice-card header div { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.sc-n { font-family: var(--font-mono); font-size: 22px; font-weight: 700; width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--fg); display: flex; align-items: center; justify-content: center; flex: none; }
+.slice-card.st-done .sc-n { background: var(--fg); color: var(--bg); }
+.sc-sec { display: flex; flex-direction: column; gap: 5px; font-size: 13.5px; }
+.sc-sec i { font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.gtag { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); background: var(--bg); border-radius: 5px; padding: 1px 7px; }
+.sc-link { align-self: flex-start; font-size: 13px; font-weight: 600; color: var(--fg); }
+.sc-nolink { font-size: 12.5px; color: var(--muted); }
+.card.un { border-style: dashed; }
+.ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px; }
+.gcell { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12.5px; word-break: keep-all; overflow-wrap: anywhere; }
+.gcell.g-done { border: 1.5px solid var(--fg); }
+.gc-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.gc-head b { font-family: var(--font-mono); font-size: 13px; }
+.gc-ns { display: flex; gap: 3px; }
+.gn { font-family: var(--font-mono); font-size: 11px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--muted); color: var(--muted); }
+.gn.st-done { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+.gn.st-spec { border-color: var(--fg); color: var(--fg); }
+.gc-d { color: var(--muted); }
+@media (max-width: 560px) {
+  .lad-row { grid-template-columns: 1fr; grid-template-areas: "head" "bar" "text"; }
+  .lad-head { flex-direction: row; align-items: center; }
+  .smatrix { grid-template-columns: minmax(0, 1fr) repeat(5, 30px); gap: 4px; }
+  .sm-h { font-size: 10.5px; }
+}
 .nflow { display: flex; flex-direction: column; gap: 0; border-left: 3px solid var(--line); margin-left: 8px; }
 .nrow { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; padding: 10px 0 10px 14px; border-bottom: 1px dashed var(--line); position: relative; }
 .nrow::before { content: ""; position: absolute; left: -7px; top: 16px; width: 11px; height: 11px; border-radius: 50%; background: var(--surface); border: 2px solid var(--muted); }
