@@ -46,6 +46,8 @@ const GateSchema = z.strictObject({
   flaky_rerun: z.boolean().optional(),
   /** any: 그 작업에서 N24(구현)가 이미 통과했으면 명령 결과를 따지지 않는다 (구현이 있는 작업으로 다시 돌아온 경우) */
   reentry: z.enum(["same", "any"]).optional(),
+  /** expect: fail인데 명령이 이미 통과하고 다른 검사도 통과하면 「이미 충족」으로 보고 이 노드로 간다 (앞 작업이 이미 구현한 경우) */
+  already_met: NodeId.optional(),
   checks: z.array(z.enum(GATE_CHECKS)).optional(),
 });
 
@@ -159,6 +161,7 @@ export function parseNodes(text: string, dir: string): NodeSet {
     }
     if (n.kind === "work" && n.on_fail.length > 0) problems.push(`${id}: 작업 노드는 조건을 못 채우면 같은 노드를 다시 하므로 on_fail을 두지 않습니다`);
     if (n.next && !exists(n.next)) problems.push(`${id}: next ${n.next}는 정의되지 않은 노드입니다`);
+    if (n.gate?.already_met && !exists(n.gate.already_met)) problems.push(`${id}: already_met ${n.gate.already_met}는 정의되지 않은 노드입니다`);
 
     const seen = new Set<string>();
     for (const r of n.on_fail) {

@@ -100,6 +100,7 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
     task,
     result: stop ? "wait" : passed ? "pass" : "fail",
     ...(cause && !passed ? { cause } : {}),
+    ...(passed && gate?.alreadyMet ? { already_met: true } : {}),
     session: turn.sessionId,
     loaded: ctx.loaded,
     ...(turn.tokens ? { tokens: turn.tokens } : {}),
@@ -130,6 +131,8 @@ export const REVIEW_SCHEMA = {
   properties: {
     pass: { type: "boolean" },
     cause: { type: ["string", "null"], enum: ["code_bug", "arch_wrong", null] },
+    // code_bug일 때 고칠 곳 (2026-11-25 오너 결정): 동작이 틀림 → N23, 동작은 맞고 구조만 다름 → N25, 인수 테스트가 덜 확인 → N22
+    fix_in: { type: ["string", "null"], enum: ["behavior", "structure", "acceptance_test", null] },
     findings: {
       type: "array",
       items: {
@@ -140,13 +143,15 @@ export const REVIEW_SCHEMA = {
       },
     },
   },
-  required: ["pass", "cause", "findings"],
+  required: ["pass", "cause", "fix_in", "findings"],
   additionalProperties: false,
 } as const;
 
 export interface ReviewVerdict {
   pass: boolean;
   cause: "code_bug" | "arch_wrong" | null;
+  /** code_bug일 때 고칠 곳 */
+  fixIn: "behavior" | "structure" | "acceptance_test" | null;
   findings: { file: string; line: number | null; why: string }[];
 }
 
@@ -158,7 +163,13 @@ export function parseVerdict(v: unknown): ReviewVerdict | null {
   const findings = o.findings
     .filter((f): f is Record<string, unknown> => typeof f === "object" && f !== null)
     .map((f) => ({ file: String(f.file ?? ""), line: typeof f.line === "number" ? f.line : null, why: String(f.why ?? "") }));
-  return { pass: o.pass, cause: o.pass ? null : (cause ?? "code_bug"), findings };
+  const c = o.pass ? null : (cause ?? "code_bug");
+  // 고칠 곳을 답하지 않았으면, 지적이 모두 인수 테스트 파일을 가리킬 때만 인수 테스트로 본다.
+  const testsOnly = findings.length > 0 && findings.every((f) => f.file.startsWith("tests/acceptance/"));
+  const known = ["behavior", "structure", "acceptance_test"] as const;
+  const given = known.find((k) => k === o.fix_in);
+  const fixIn = c !== "code_bug" ? null : (given ?? (testsOnly ? "acceptance_test" : "behavior"));
+  return { pass: o.pass, cause: c, fixIn, findings };
 }
 
 /** N27: 별도 리뷰 세션(읽기 전용, 매번 새 세션)이 변경분과 설계를 대조한다. */
@@ -203,8 +214,13 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
     notes.push("리뷰 결과를 정해진 형식으로 읽지 못했습니다");
   } else if (!verdict.pass) {
     cause = verdict.cause ?? "code_bug";
-    notes.push(`설계와 다른 곳 (${cause}):\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
+    const where = verdict.fixIn ? ` · ${FIX_ROUTE[verdict.fixIn].label}` : "";
+    notes.push(`설계와 다른 곳 (${cause}${where}):\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
   }
+  // 인수 테스트가 시나리오를 제대로 확인하지 않으면 원인 경로(N23) 대신 인수 테스트를 쓰는 N22로 보낸다.
+  // 동작이 틀린 경우는 원인 경로(N23)대로 가고, 구조나 인수 테스트는 그 노드에서 고친 뒤 N26부터 다시 확인한다.
+  const route = !passed0(stop, turn.ok, verdict, diff.violations.length) && verdict?.fixIn ? FIX_ROUTE[verdict.fixIn] : undefined;
+  const nextOverride = route?.next;
   if (diff.violations.length) notes.push(diff.message);
   const passed = !stop && turn.ok && !!verdict?.pass && diff.violations.length === 0;
   const summary = [stop ? `${nodeId} 멈춤: ${stop}` : passed ? `${nodeId} 통과 (리뷰 세션)` : `${nodeId} 실패 (리뷰 세션)`, ...notes].join("\n");
@@ -218,6 +234,7 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
     task,
     result: stop ? "wait" : passed ? "pass" : "fail",
     ...(cause && !passed ? { cause } : {}),
+    ...(nextOverride ? { next: nextOverride, then: "N26" } : {}),
     session: turn.sessionId,
     loaded: ctx.loaded,
     ...(turn.tokens ? { tokens: turn.tokens } : {}),
@@ -241,3 +258,14 @@ function safeJson(text: string): unknown {
     return undefined;
   }
 }
+
+function passed0(stop: string | undefined, ok: boolean, verdict: ReviewVerdict | null, violations: number): boolean {
+  return !stop && ok && !!verdict?.pass && violations === 0;
+}
+
+/** 리뷰가 정한 고칠 곳별 경로 */
+const FIX_ROUTE: Record<"behavior" | "structure" | "acceptance_test", { label: string; next?: string }> = {
+  behavior: { label: "동작이 설계와 다름 (N23부터)" },
+  structure: { label: "동작은 맞고 구조만 다름 (N25 리팩터 뒤 N26)", next: "N25" },
+  acceptance_test: { label: "인수 테스트가 시나리오를 덜 확인함 (N22 뒤 N26)", next: "N22" },
+};

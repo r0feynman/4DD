@@ -121,7 +121,7 @@ describe("노드별 관문", () => {
   });
 
   it("N26: 명령을 실행하지 못하면 env", () => {
-    const broken = { ...config, commands: { ...config.commands, acceptance: "no-such-command-4dd" } };
+    const broken = { ...config, commands: { ...config.commands, run_files: "no-such-command-4dd" } };
     expect(gate("N26", "T1", broken)).toMatchObject({ passed: false, cause: "env" });
   });
 
@@ -174,5 +174,21 @@ describe("관문 실행 기록", () => {
 
   it("관문 출력은 git이 무시한다", () => {
     expect(git(root, ["status", "--porcelain", "--", ".4dd/gates"]).trim()).toBe("");
+  });
+});
+
+describe("작업의 시나리오만 돌리기", () => {
+  it("N22·N26은 run_files로 그 작업의 시나리오 파일만 돌린다 (인수 테스트 전체가 아니라)", () => {
+    put("tests/acceptance/S2.test.ts", `import { test, expect } from "vitest";\ntest("S2 다른 작업", () => { expect(1).toBe(2); });\n`);
+    const r = gate("N26");
+    expect(r.runs[0].command).toBe("npx vitest run tests/acceptance/S1.test.ts");
+    expect(r.passed).toBe(true);
+    rmSync(join(root, "tests/acceptance/S2.test.ts"));
+  });
+
+  it("run_files가 없으면 acceptance로 대신한다", () => {
+    const { run_files: _, ...rest } = config.commands;
+    const r = gate("N26", "T1", { ...config, commands: rest });
+    expect(r.runs[0].command).toBe("npx vitest run tests/acceptance tests/acceptance/S1.test.ts");
   });
 });

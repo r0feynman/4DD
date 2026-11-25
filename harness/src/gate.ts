@@ -56,6 +56,8 @@ export interface GateOutcome {
   checks: GateCheckResult[];
   /** 다음 차례의 맥락에 붙일 한국어 요약 */
   summary: string;
+  /** 실패해야 하는 관문이 앞 작업의 구현으로 이미 통과함 (already_met로 감) */
+  alreadyMet?: boolean;
 }
 
 /** 작업의 시나리오와 인수 테스트 파일. 파일이 아직 없으면 정해진 이름(tests/acceptance/S1.test.ts)을 준다. */
@@ -81,7 +83,9 @@ export function taskStartRef(events: LedgerEvent[], task: string | null): string
 function expand(template: string, config: Config, scenarioFiles: string[]): string {
   return template
     .replace(/\{commands\.(\w+)\}/g, (_, k: string) => {
-      const v = (config.commands as Record<string, string | undefined>)[k];
+      const cmds = config.commands as Record<string, string | undefined>;
+      // run_files가 없으면 acceptance로 대신한다 (그러면 인수 테스트 전체가 돌 수 있다)
+      const v = cmds[k] ?? (k === "run_files" ? cmds.acceptance : undefined);
       if (!v) throw new Error(`4dd.config.yaml에 commands.${k}가 없습니다`);
       return v;
     })
@@ -174,9 +178,11 @@ function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[];
       const mine = events.filter((e) => e.type === "node_end" && e.task === ctx.task && e.result === "pass");
       const red = mine.findIndex((e) => e.type === "node_end" && e.node === "N23");
       const green = mine.findLastIndex((e) => e.type === "node_end" && e.node === "N24");
-      return red >= 0 && green > red
-        ? { name, ok: true, detail: "N23에서 실패하는 테스트를 쓴 뒤 N24에서 통과시켰습니다" }
-        : { name, ok: false, detail: "TDD 순서가 원장에 없습니다: N23(실패하는 단위 테스트)을 통과한 뒤 N24(구현)를 통과해야 합니다" };
+      if (red >= 0 && green > red) return { name, ok: true, detail: "N23에서 실패하는 테스트를 쓴 뒤 N24에서 통과시켰습니다" };
+      // 이미 충족된 작업은 구현을 바꾸지 않았으므로 TDD 순서를 따지지 않는다 (구현을 바꿨다면 위의 순서가 있어야 한다).
+      const met = mine.some((e) => e.type === "node_end" && e.already_met);
+      if (met && green < 0) return { name, ok: true, detail: "이미 충족된 작업이라 구현을 바꾸지 않았습니다 (TDD 순서 면제)" };
+      return { name, ok: false, detail: "TDD 순서가 원장에 없습니다: N23(실패하는 단위 테스트)을 통과한 뒤 N24(구현)를 통과해야 합니다" };
     }
     case "locked_unchanged": {
       const d = baselineDiff(root, ctx.config);
@@ -231,7 +237,17 @@ export function runGate(ctx: GateContext): GateOutcome {
 
   const lastRuns = runs.filter((r, i) => !(runs[i + 1]?.flakyRerun && runs[i + 1].command === r.command));
   const runsOk = lastRuns.every((r) => r.result === "pass") && cause === undefined;
-  const passed = runsOk && checks.every((c) => c.ok);
+  const checksOk = checks.every((c) => c.ok);
+  // 이미 충족: 실패해야 하는 명령이 처음부터 통과했고(앞 작업이 이미 구현함), 다른 검사(시나리오마다 테스트가 있음)는 통과했다.
+  const alreadyMet =
+    !!gate.already_met && gate.expect === "fail" && !reentry && cause === undefined && checksOk && lastRuns.length > 0 && lastRuns.every((r) => r.exit === 0);
+  const passed = (runsOk && checksOk) || alreadyMet;
+  if (alreadyMet) {
+    const summary = `${ctx.nodeId} 이미 충족: 작업의 시나리오(${scenarios.ids.map((s) => `@${s}`).join(", ")})가 앞 작업의 구현으로 이미 통과합니다. N23~N25를 건너뛰고 ${gate.already_met}로 갑니다. N27 리뷰가 이 테스트가 시나리오를 제대로 확인하는지 봅니다`;
+    mkdirSync(join(ctx.root, GATE_DIR), { recursive: true });
+    writeFileSync(join(ctx.root, GATE_DIR, `${ctx.runId}.summary.md`), summary + "\n", "utf8");
+    return { node: ctx.nodeId, passed: true, alreadyMet: true, runs, checks, summary };
+  }
 
   const lines: string[] = [];
   for (const r of runs) {

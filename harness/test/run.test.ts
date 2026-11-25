@@ -26,7 +26,7 @@ interface Script {
   /** 이 노드·작업에서 일을 하지 않는 횟수 (관문 실패를 일으킨다) */
   lazy?: Record<string, number>;
   /** 리뷰 결과를 차례로 */
-  reviews?: { pass: boolean; cause: "code_bug" | "arch_wrong" | null }[];
+  reviews?: { pass: boolean; cause: "code_bug" | "arch_wrong" | null; fix_in?: "behavior" | "structure" | "acceptance_test" }[];
   /** 힌트를 받으면 그때부터 제대로 한다 */
   fixOnHint?: boolean;
 }
@@ -51,7 +51,8 @@ function scriptedAgent(script: Script = {}): Adapter & { calls: { node: string; 
       const done = (extra: Partial<TurnResult> = {}): TurnResult => ({ ok: true, sessionId: req.sessionId ?? `sess-${task}`, text: "끝", tokens: { input: 10, output: 5 }, costUsd: 0.01, minutes: 0.1, turns: 2, timedOut: false, ...extra });
       if (req.readOnly) {
         const v = reviews.shift() ?? { pass: true, cause: null };
-        return done({ sessionId: `review-${calls.length}`, structured: { ...v, findings: v.pass ? [] : [{ file: "src/t1.ts", line: 1, why: "설계와 다름" }] } });
+        const file = v.fix_in === "acceptance_test" ? "tests/acceptance/S1.test.ts" : "src/t1.ts";
+        return done({ sessionId: `review-${calls.length}`, structured: { fix_in: v.pass ? null : (v.fix_in ?? "behavior"), ...v, findings: v.pass ? [] : [{ file, line: 1, why: "설계와 다름" }] } });
       }
       const key = `${node}:${task}`;
       const hinted = script.fixOnHint && req.prompt.includes("### 사람이 준 힌트");
@@ -158,5 +159,57 @@ describe("지휘 루프", () => {
     expect(git(root, ["status", "--porcelain", "--", ".", ":!.4dd/events.jsonl"]).trim()).toBe("");
     const r2 = runLoop({ root, adapter: agent });
     expect(r2.reason, r2.message).toBe("done");
+  });
+});
+
+describe("이미 충족된 작업 (2026-11-25 오너 결정)", () => {
+  it("앞 작업이 몫까지 구현했으면 N22에서 이미 충족으로 보고 N26으로 가고, 리뷰가 테스트를 확인한다", () => {
+    const prompts: { node: string; task: string; prompt: string }[] = [];
+    const base = scriptedAgent();
+    const agent: Adapter = {
+      agent: "claude",
+      runTurn(req) {
+        const task = /작업 (T\d+)/.exec(req.prompt)?.[1] ?? "T?";
+        prompts.push({ node: req.env.FOURDD_NODE, task, prompt: req.prompt });
+        const r = base.runTurn(req);
+        // T2를 구현하면서 T3의 몫(src/t3.ts)까지 만들어 버린다
+        if (req.env.FOURDD_NODE === "N24" && task === "T2") put("src/t3.ts", "export const ok = true;\n");
+        return r;
+      },
+    };
+    const r = runLoop({ root, adapter: agent });
+    expect(r.reason, r.message).toBe("done");
+    expect(nodeSeq("T3")).toEqual(["N21:pass", "N22:pass", "N26:pass", "N27:pass", "N28:pass", "N29:pass"]);
+    const n22 = readEvents(root).events.find((e) => e.type === "node_end" && e.task === "T3" && e.node === "N22");
+    expect(n22).toMatchObject({ already_met: true });
+    const review = prompts.find((p) => p.node === "N27" && p.task === "T3");
+    expect(review?.prompt).toContain("### 이미 충족된 작업");
+    expect(review?.prompt).toContain("tests/acceptance/S3.test.ts");
+    expect(prompts.filter((p) => p.task === "T3" && ["N23", "N24", "N25"].includes(p.node))).toEqual([]);
+  });
+});
+
+describe("리뷰가 인수 테스트를 고치라고 할 때", () => {
+  it("fix_in이 acceptance_test면 N23 대신 N22로 가서 인수 테스트를 고치고, 그다음 N26으로 바로 간다", () => {
+    const r = runLoop({ root, adapter: scriptedAgent({ reviews: [{ pass: false, cause: "code_bug", fix_in: "acceptance_test" }] }), maxTasks: 1 });
+    expect(r.reason, r.message).toBe("paused");
+    expect(nodeSeq("T1")).toEqual([
+      "N21:pass", "N22:pass", "N23:pass", "N24:pass", "N25:pass", "N26:pass", "N27:fail",
+      "N22:pass", "N26:pass", "N27:pass", "N28:pass", "N29:pass",
+    ]);
+    const end27 = readEvents(root).events.find((e) => e.type === "node_end" && e.node === "N27" && e.result === "fail");
+    expect(end27).toMatchObject({ cause: "code_bug", next: "N22", then: "N26" });
+  });
+});
+
+describe("리뷰가 구조만 고치라고 할 때 (2026-11-25 오너 결정)", () => {
+  it("fix_in이 structure면 N25 리팩터로 가서 고치고 N26으로 이어 간다", () => {
+    const r = runLoop({ root, adapter: scriptedAgent({ reviews: [{ pass: false, cause: "code_bug", fix_in: "structure" }] }), maxTasks: 1 });
+    expect(r.reason, r.message).toBe("paused");
+    expect(nodeSeq("T1")).toEqual([
+      "N21:pass", "N22:pass", "N23:pass", "N24:pass", "N25:pass", "N26:pass", "N27:fail",
+      "N25:pass", "N26:pass", "N27:pass", "N28:pass", "N29:pass",
+    ]);
+    expect(readEvents(root).events.find((e) => e.type === "node_end" && e.node === "N27" && e.result === "fail")).toMatchObject({ next: "N25", then: "N26" });
   });
 });

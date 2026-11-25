@@ -26,8 +26,10 @@ function pendingThen(nodes: NodeSet, ends: NodeEnd[]): string | null {
   for (let i = ends.length - 2; i >= 0; i--) {
     const e = ends[i];
     if (e.result === "fail" && nodes.nodes[e.node]?.kind === "decision") {
-      const r = failRoute(nodes, e.node, causeOf(e));
       const onlyRetries = ends.slice(i + 1, -1).every((x) => x.node === last.node);
+      // 하네스가 갈 곳과 이어서 갈 곳을 직접 정해 두었으면 그것을 따른다 (N27 → N22 → N26)
+      if (e.next) return e.next === last.node && e.then && onlyRetries ? e.then : null;
+      const r = failRoute(nodes, e.node, causeOf(e));
       return r && r.goto === last.node && r.then && onlyRetries ? r.then : null;
     }
     if (e.result === "pass" && e.node !== last.node) return null;
@@ -81,6 +83,9 @@ export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: Work
   if (end.result === "wait") return { kind: "human", node: end.node, reason: end.cause ?? "env" };
   if (end.result === "pass") {
     if (end.task_done) return { kind: "pick" };
+    // 이미 충족: 앞 작업의 구현으로 시나리오가 이미 통과하면 정해진 곳(N26)으로 바로 간다.
+    const metTarget = end.already_met ? nodes.nodes[end.node]?.gate?.already_met : undefined;
+    if (metTarget) return { kind: "node", node: metTarget };
     const ends = events.filter((e): e is NodeEnd => e.type === "node_end" && e.task === state.task);
     const then = pendingThen(nodes, ends);
     if (then) return { kind: "node", node: then };
@@ -89,6 +94,8 @@ export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: Work
   }
   // 실패
   if (getNode(nodes, end.node).kind === "work") return { kind: "node", node: end.node };
+  // 하네스가 원인 경로 대신 갈 곳을 정해 두었으면 그리로 (N27이 인수 테스트를 고치라고 함 → N22)
+  if (end.next) return { kind: "node", node: end.next };
   const r = failRoute(nodes, end.node, causeOf(end));
   if (!r || r.goto === "human") return { kind: "human", node: end.node, reason: causeOf(end) };
   return { kind: "node", node: r.goto };

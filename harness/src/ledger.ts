@@ -44,6 +44,12 @@ export const EventSchema = z.discriminatedUnion("type", [
     cause: Cause.optional(),
     /** N29에서 작업을 끝냈을 때 true */
     task_done: z.boolean().optional(),
+    /** N22에서 작업의 시나리오가 앞 작업의 구현으로 이미 통과했을 때 true (작업 분해가 겹친 신호) */
+    already_met: z.boolean().optional(),
+    /** 실패했을 때 원인 경로 대신 갈 곳 (N27 리뷰가 인수 테스트를 고치라고 했을 때 N22) */
+    next: Node.optional(),
+    /** next에서 고친 뒤 이어서 갈 곳 (N22에서 인수 테스트를 고친 뒤 N26) */
+    then: Node.optional(),
     /** 이 차례가 쓴 작업 세션 ID (Codex는 첫 차례가 끝나야 안다) */
     session: z.string().min(1).nullable().optional(),
     loaded: z.array(Loaded).default([]),

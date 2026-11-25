@@ -79,3 +79,21 @@ describe("다음 할 일 정하기", () => {
     expect(next([...ev, human("hold")])).toEqual({ kind: "pick" });
   });
 });
+
+describe("이미 충족", () => {
+  it("N22가 이미 충족으로 통과하면 N26으로 바로 간다", () => {
+    const ev = [...picked(), ev22()];
+    expect(next(ev)).toEqual({ kind: "node", node: "N26" });
+  });
+});
+
+function ev22(): LedgerEvent {
+  return { ...base, type: "node_end", id: `NR${++n}`, node: "N22", task: "T1", result: "pass", already_met: true, loaded: [], minutes: 0 } as LedgerEvent;
+}
+
+describe("하네스가 정한 갈 곳", () => {
+  it("실패한 판단 노드에 next가 있으면 원인 경로 대신 그리로", () => {
+    const ev = [...picked(), { ...base, type: "node_end", id: `NR${++n}`, node: "N27", task: "T1", result: "fail", cause: "code_bug", next: "N22", loaded: [], minutes: 0 } as LedgerEvent];
+    expect(next(ev)).toEqual({ kind: "node", node: "N22" });
+  });
+});

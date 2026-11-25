@@ -14,6 +14,8 @@ const ConfigSchema = z.strictObject({
   commands: z.strictObject({
     unit: z.string().min(1),
     acceptance: z.string().min(1),
+    /** 파일을 받아 그 테스트만 돌리는 명령 (작업의 시나리오만 돌릴 때). 없으면 acceptance를 쓴다 */
+    run_files: z.string().min(1).optional(),
     build: z.string().min(1).optional(),
     visual: z.string().min(1).optional(),
   }),

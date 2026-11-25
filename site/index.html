@@ -244,13 +244,13 @@ summary { cursor: pointer; font-weight: 500; }
           <div class="stage-head"><h3>개발</h3><span class="who">개발팀 · 1~4주</span></div>
           <div class="nodes">
             <div class="node c-sdd" data-m="sdd"><span class="id">N21</span><span class="m">SDD</span><span class="t"><b><code>tasks.md</code>에서 작업 하나 선택</b></span></div>
-            <div class="node c-bdd" data-m="bdd"><span class="id">N22</span><span class="m">BDD</span><span class="t"><b>인수 테스트 작성</b><small>Playwright 같은 E2E 도구로 Figma 흐름을 그대로 따라감 · 처음에는 실패하는 상태 · 불안정한 테스트를 고치러 왔으면 N26으로 바로</small></span></div>
+            <div class="node c-bdd" data-m="bdd"><span class="id">N22</span><span class="m">BDD</span><span class="t"><b>인수 테스트 작성</b><small>Playwright 같은 E2E 도구로 Figma 흐름을 그대로 따라감 · 처음에는 실패하는 상태 · 불안정한 테스트를 고치러 왔으면 N26으로 바로 · 앞 작업의 구현으로 이미 통과하면(이미 충족) N26으로</small></span></div>
             <div class="node c-tdd" data-m="tdd"><span class="id">N23</span><span class="m">TDD</span><span class="t"><b>Red · 실패하는 단위 테스트 작성</b></span></div>
             <div class="node c-tdd" data-m="tdd"><span class="id">N24</span><span class="m">TDD</span><span class="t"><b>Green · 테스트가 통과하게 구현</b></span></div>
             <div class="node c-tdd" data-m="tdd"><span class="id">N25</span><span class="m">TDD</span><span class="t"><b>Refactor · 코드 정리</b></span></div>
             <div class="node c-bdd decision" data-m="bdd"><span class="id">N26</span><span class="m">BDD</span><span class="t"><b>인수 테스트 통과?</b><small>아니오 → N23</small></span></div>
             <div class="node c-fig decision" data-m="fig"><span class="id">N26F</span><span class="m">Figma</span><span class="t"><b>화면이 Figma 프레임과 일치?</b><small>스크린샷 비교 테스트 · 다르면 프레임대로 다시 구현: 화면 차이 → N24, 로직 오류 → N23 · 프레임 자체가 틀렸을 때만 사람 승인 뒤 N03F, 동작까지 바뀌면 N03</small></span></div>
-            <div class="node c-sdd decision" data-m="sdd"><span class="id">N27</span><span class="m">SDD</span><span class="t"><b>설계 스펙과 일치?</b><small>아니오면 설계대로 코드를 고침 → N23 · 설계 자체가 틀렸을 때만 사람 승인 뒤 N13</small></span></div>
+            <div class="node c-sdd decision" data-m="sdd"><span class="id">N27</span><span class="m">SDD</span><span class="t"><b>설계 스펙과 일치?</b><small>아니오면 설계대로 고침: 동작이 틀림 → N23, 구조만 다름 → N25, 인수 테스트가 덜 확인 → N22 · 설계 자체가 틀렸을 때만 사람 승인 뒤 N13</small></span></div>
             <div class="node c-scrum decision" data-m="scrum"><span class="id">N28</span><span class="m">스크럼</span><span class="t"><b>DoD 충족?</b><small>전체 테스트, CI, Figma 일치 · 아니오 → N23</small></span></div>
             <div class="node c-sdd" data-m="sdd"><span class="id">N29</span><span class="m">SDD</span><span class="t"><b>작업 완료 체크</b><small><code>tasks.md</code> 갱신 · 남은 작업이 있으면 N21</small></span></div>
             <div class="loop"><b>진행 요약 (N2D, 매일)</b> · 하네스가 원장에서 끝낸 작업, 통과한 시나리오, 막힌 곳을 요약해 팀에 알립니다.</div>
@@ -299,7 +299,7 @@ summary { cursor: pointer; font-weight: 500; }
           <tr><td class="id">N12</td><td>스펙·시나리오·화면 없음</td><td class="id">N01</td><td>준비 안 된 스토리는 스프린트에 넣지 않음</td></tr>
           <tr><td class="id">N26</td><td>인수 테스트 실패</td><td class="id">N23</td><td>TDD 반복</td></tr>
           <tr><td class="id">N26F</td><td>Figma와 불일치</td><td class="id">N24 / N23 / N03F / N03</td><td>기본은 프레임대로 다시 구현합니다. 화면 차이면 구현을 고치고, 로직 오류면 단위 테스트부터. 프레임 자체가 틀렸을 때만 사람 승인을 받고 화면 완성으로, 동작까지 바뀌면 시나리오부터</td></tr>
-          <tr><td class="id">N27</td><td>설계와 불일치</td><td class="id">N23 / N13</td><td>기본은 설계대로 코드를 고칩니다. 설계 자체가 틀렸을 때만 사람 승인을 받고 설계로</td></tr>
+          <tr><td class="id">N27</td><td>설계와 불일치</td><td class="id">N23 / N25 / N22 / N13</td><td>기본은 설계대로 고칩니다. 동작이 틀리면 N23, 구조만 다르면 N25, 인수 테스트가 덜 확인하면 N22에서 고친 뒤 N26부터. 설계 자체가 틀렸을 때만 사람 승인을 받고 설계로</td></tr>
           <tr><td class="id">N28</td><td>DoD 미충족</td><td class="id">N23</td><td>완료 기준을 채울 때까지 작업</td></tr>
           <tr><td class="id">N44</td><td>회고 끝</td><td class="id">N01</td><td>다음 스프린트 시작. 완성 조건을 모두 채웠으면 PO 승인 뒤 프로젝트를 마침</td></tr>
         </tbody>
@@ -391,7 +391,10 @@ flowchart LR
       N26 -- 아니오 --> N23
       N26F -- 화면 차이 --> N24
       N26F -- 로직 오류 --> N23
-      N27 -- 아니오 --> N23
+      N27 -- 동작이 틀림 --> N23
+      N27 -- 구조만 다름 --> N25
+      N27 -- 인수 테스트가 덜 확인 --> N22
+      N22 -- 이미 충족 --> N26
       N28 -- 아니오 --> N23
       N29 -- 남은 작업 --> N21
       N2D -. 매일 .-> N21

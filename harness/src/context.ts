@@ -125,6 +125,27 @@ export function buildContext(opts: ContextOptions): BuiltContext {
     const ref = taskStartRef(events, task);
     const diff = git(root, ["diff", `${ref}..HEAD`, "--", "src", "tests"]).trim();
     work.push(`### 이 작업의 변경분 (git diff ${ref.slice(0, 7)}..HEAD -- src tests)\n\`\`\`diff\n${diff || "(변경 없음)"}\n\`\`\``);
+    // 이미 충족된 작업: 구현을 바꾸지 않고 넘어왔으므로, 인수 테스트가 시나리오를 제대로 확인하는지가 유일한 안전장치다.
+    const met = events.some((e) => e.type === "node_end" && e.task === task && e.already_met);
+    if (met && trace && t) {
+      const scen = scenariosForTask(trace, task);
+      const files = [...new Set(scen.map((s) => s.file))];
+      const blocks = files.map((f) => scenarioBlocks(readFileSync(join(root, f), "utf8"), scen.map((s) => s.id))).join("\n\n");
+      const tests = scen
+        .map((s) => `tests/acceptance/${s.id}.test.ts`)
+        .filter((f) => existsSync(join(root, f)))
+        .map((f) => `#### ${f}\n\`\`\`ts\n${readFileSync(join(root, f), "utf8").trim()}\n\`\`\``)
+        .join("\n\n");
+      work.push(
+        [
+          "### 이미 충족된 작업",
+          "이 작업의 시나리오는 앞 작업의 구현으로 이미 통과해서, 구현을 바꾸지 않고 N23~N25를 건너뛰었습니다.",
+          "설계 대조와 함께, 아래 인수 테스트가 시나리오의 조건, 만일, 그러면을 실제로 확인하는지 봅니다. 확인하지 않는 테스트(항상 통과하는 테스트, 단계를 빼먹은 테스트)면 code_bug로 실패시키고 지적에 그 내용을 적습니다.",
+          `\`\`\`gherkin\n${blocks}\n\`\`\``,
+          tests || "(인수 테스트 파일을 찾지 못했습니다)",
+        ].join("\n\n"),
+      );
+    }
   }
   if (node.reads.includes("last_gate")) {
     const lastEnd = lastFor(events, "node_end", (e) => e.task === task);

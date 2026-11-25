@@ -15,7 +15,7 @@ import { runSessionNode } from "./turn.ts";
 import { checkCommit, checkDiff } from "./guard.ts";
 import { runHook, type Tool } from "./hooks.ts";
 import { initProject } from "./init.ts";
-import { DIR } from "./ledger.ts";
+import { DIR, readEvents } from "./ledger.ts";
 import { bashViolation, canSessionWrite } from "./lock.ts";
 import { getNode, loadNodes } from "./nodes.ts";
 import { loadState, type State } from "./state.ts";
@@ -109,6 +109,12 @@ function status(dir: string | undefined): number {
     `끝낸 작업: ${s.done_tasks.join(", ") || "-"}${s.held_tasks.length ? ` · 보류: ${s.held_tasks.join(", ")}` : ""}`,
   ];
   if (s.waiting) lines.push(`기다리는 이유: ${s.waiting.node}에서 ${s.waiting.reason}`);
+  // 노드 시작만 있고 끝이 없으면, 지휘 프로그램이 그 노드를 돌다가 꺼졌을 수 있다.
+  const { events } = readEvents(root);
+  const lastStart = events.filter((e) => e.type === "node_start").at(-1);
+  if (s.status === "running" && lastStart?.type === "node_start" && !events.some((e) => e.type === "node_end" && e.id === lastStart.id)) {
+    lines.push(`마지막 노드 실행(${lastStart.id}, ${lastStart.node})이 끝나지 않았습니다. 지휘 프로그램이 돌고 있지 않다면 중간에 꺼진 것이고, 4dd run이 그 노드부터 다시 합니다`);
+  }
   if (rebuilt && s.events > 0) lines.push("state.json을 원장에서 다시 만들었습니다");
   for (const w of warnings) lines.push(`주의: ${w}`);
   out(lines.join("\n"));

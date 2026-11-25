@@ -33,6 +33,8 @@ export interface Report {
   instructionVersions: { node: string; hash: string; runs: number; firstTry: number }[];
   humanByNode: { node: string; count: number }[];
   byAgent: { agent: string; runs: number; passRate: number; tokens: number }[];
+  /** 앞 작업의 구현으로 시나리오가 이미 통과한 작업 (작업 분해가 겹친 신호) */
+  alreadyMet: string[];
 }
 
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
@@ -157,6 +159,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     instructionVersions: [...versions].map(([k, v]) => ({ node: split(k)[0], hash: split(k)[1], ...v })).sort((a, b) => a.node.localeCompare(b.node)),
     humanByNode: [...humans].map(([node, count]) => ({ node, count })).sort((a, b) => b.count - a.count),
     byAgent: [...agents].map(([agent, v]) => ({ agent, runs: v.runs, passRate: round(v.pass / v.runs), tokens: v.tokens })),
+    alreadyMet: [...new Set(ends.filter((e) => e.already_met && e.task).map((e) => e.task as string))],
   };
 }
 
@@ -182,6 +185,7 @@ export function renderReport(r: Report): string {
   list("토큰을 가장 많이 쓴 노드", r.topCostNodes.map((x) => `${x.node}: ${x.tokens.toLocaleString("en-US")} 토큰 · ${x.minutes}분 · $${x.costUsd}`));
   list("지시문 버전별 첫 차례 통과 (받아도 그대로면 정리 후보)", r.instructionVersions.map((x) => `${x.node} 지시문 ${x.hash}: 차례 ${x.runs}번, 첫 차례 통과 ${x.firstTry}번`));
   list("사람 개입이 몰리는 노드", r.humanByNode.map((x) => `${x.node} ${x.count}번`));
+  list("이미 충족된 작업 (앞 작업이 몫까지 구현함: 작업 분해가 겹친 신호, N14 회고 후보)", r.alreadyMet);
   list("도구별 차이", r.byAgent.map((x) => `${x.agent}: 노드 실행 ${x.runs}번 · 통과 ${pct(x.passRate)} · ${x.tokens.toLocaleString("en-US")} 토큰`));
   lines.push("찾은 것은 바로 고치지 않습니다. 개선 후보가 되어 시험 세트를 거친 뒤에만 규칙이 됩니다 (하네스 설계 ⑥).");
   return lines.join("\n") + "\n";

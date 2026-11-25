@@ -34,9 +34,10 @@ N22:
   reads: [task, requirements, scenarios, design, last_gate, hint]
   writes: ["tests/acceptance/**"]
   gate:
-    run: "{commands.acceptance} {task.scenario_files}"
+    run: "{commands.run_files} {task.scenario_files}"
     expect: fail
     reentry: any          # 구현이 이미 있는 작업으로 돌아오면 실패하지 않아도 됨
+    already_met: N26      # 앞 작업의 구현으로 이미 통과하면 N23~N25를 건너뜀 (N27 리뷰가 테스트를 확인, 2026-11-25 오너 결정)
     checks: [scenario_files_exist]
 
 N23:
@@ -87,7 +88,7 @@ N26:
   kind: decision
   actor: harness
   gate:
-    run: "{commands.acceptance} {task.scenario_files}"
+    run: "{commands.run_files} {task.scenario_files}"
     expect: pass
     flaky_rerun: true
   on_fail:
