@@ -71,7 +71,7 @@ export function initProject(dest: string, opts: InitOptions = {}): InitResult {
   writeFileSync(preCommit, `#!/bin/sh\n# 4DD 잠금 검사 (4dd init이 만듦)\nexec ${hookCommand("check commit")}\n`);
   chmodSync(preCommit, 0o755);
   // node_modules는 링크로 둘 수도 있어서(폴더가 아니면 "node_modules/"에 안 맞음) 슬래시 없이 한 번 더 적는다.
-  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\n${DIR}/report.md\nnode_modules\n`);
+  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\n${DIR}/review/\n${DIR}/report.md\nnode_modules\n`);
 
   // 4. git 저장소. 기준 해시는 git이 아는 파일로 정하므로 저장소를 먼저 만든다.
   git(root, ["init", "-q", "-b", "main"]);

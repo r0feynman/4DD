@@ -17,14 +17,19 @@ import { runHook, type Tool } from "./hooks.ts";
 import { initProject } from "./init.ts";
 import { DIR, readEvents } from "./ledger.ts";
 import { bashViolation, canSessionWrite } from "./lock.ts";
-import { getNode, loadNodes } from "./nodes.ts";
+import { CAUSES, getNode, loadNodes, type Cause } from "./nodes.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, formatIssues, nextIds } from "./trace.ts";
+import { approveReview, buildReview, recordPublished, rejectReview, tellStory, type Speaker } from "./po.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
   run [--agent claude|codex] [--max-tasks N] [--root 폴더]   지휘 루프. 끝나거나 사람이 필요할 때까지 돈다 (0 끝 · 3 사람 대기 · 1 오류)
   human <approve|hint|reclassify|hold> [글|원인] [--minutes N] [--root 폴더]   사람 개입을 남기고 다시 시작할 수 있게 한다
+  story --feature <이름> "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]   N01: 스토리를 받아 그 기능의 Stage 0을 시작한다 (PO 창구)
+  review [--url <주소> [--id RV…]] [--root 폴더]   기다리는 승인(N04, N15)의 검토 페이지를 만든다. --url은 게시한 주소를 남긴다 (PO 창구)
+  human approve --review <RV…> --quote "<PO의 말>"   검토 해시를 확인하고 승인, 스테이지 패킷을 남긴다 (PO 창구)
+  human reject --review <RV…> (--cause <원인> | --to <노드>) --quote "<PO의 말>"   되돌린다. PO의 말은 다음 차례의 힌트와 학습 후보가 된다 (PO 창구)
   report [--root 폴더]                         원장만으로 개선 지표와 반복 실수·비효율 질의 결과 (.4dd/report.md)
   init <폴더> [--from <원본>] [--no-install]   시험 프로젝트를 새 git 저장소로 만들고 훅과 기준 해시를 건다
   setup codex [--codex-home 폴더]               Codex 사용자 설정(~/.codex/hooks.json)에 4DD 훅을 한 번 넣는다
@@ -73,6 +78,15 @@ function parseArgs(args: string[]): { pos: string[]; opt: Record<string, string 
 }
 
 const str = (v: string | true | undefined): string | undefined => (typeof v === "string" ? v : undefined);
+
+/** --by, --channel: 누가 어느 통로로 (기본은 PO가 채팅으로) */
+function speaker(opt: Record<string, string | true>): Speaker {
+  const by = str(opt.by);
+  const channel = str(opt.channel);
+  if (by && !["po", "dev", "script"].includes(by)) throw new Error("--by는 po, dev, script 가운데 하나입니다");
+  if (channel && !["chat", "terminal"].includes(channel)) throw new Error("--channel은 chat, terminal 가운데 하나입니다");
+  return { ...(by ? { by: by as Speaker["by"] } : {}), ...(channel ? { channel: channel as Speaker["channel"] } : {}) };
+}
 
 function out(text: string): void {
   if (text) process.stdout.write(text.endsWith("\n") ? text : text + "\n");
@@ -268,6 +282,49 @@ function main(argv: string[]): number {
       const fine = r.reason === "done" || r.reason === "paused";
       (fine ? out : err)(r.message);
       return fine ? 0 : r.reason === "error" ? 1 : 3;
+    }
+    if (cmd === "story") {
+      const { pos, opt } = parseArgs(rest);
+      const feature = str(opt.feature);
+      if (!feature || !pos.length) {
+        err('사용법: 4dd story --feature <기능 이름> "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]');
+        return 1;
+      }
+      out(tellStory(resolve(str(opt.root) ?? "."), feature, pos.join(" "), speaker(opt)));
+      return 0;
+    }
+    if (cmd === "review") {
+      const { opt } = parseArgs(rest);
+      const root = resolve(str(opt.root) ?? ".");
+      const url = str(opt.url);
+      if (url) {
+        out(recordPublished(root, url, str(opt.id)));
+        return 0;
+      }
+      const r = buildReview(root);
+      out(`${r.id} 검토 페이지를 만들었습니다: ${r.file}\n제목: ${r.title} · ${r.node} · 해시 ${r.hash.slice(0, 12)}\n아티팩트로 게시한 뒤 4dd review --url <주소>로 주소를 남기고, PO의 답은 4dd human approve|reject --review ${r.id} --quote "<PO의 말>"로 옮깁니다`);
+      return 0;
+    }
+    if (cmd === "human" && str(parseArgs(rest).opt.review)) {
+      const { pos, opt } = parseArgs(rest);
+      const root = resolve(str(opt.root) ?? ".");
+      const reviewId = str(opt.review)!;
+      const quote = str(opt.quote) ?? pos.slice(1).join(" ");
+      if (pos[0] === "approve") {
+        out(approveReview(root, reviewId, quote, speaker(opt)));
+        return 0;
+      }
+      if (pos[0] === "reject") {
+        const cause = str(opt.cause);
+        if (cause && !(CAUSES as readonly string[]).includes(cause)) {
+          err(`실패 원인은 ${CAUSES.join(", ")} 가운데 하나입니다`);
+          return 1;
+        }
+        out(rejectReview(root, reviewId, quote, { ...speaker(opt), ...(cause ? { cause: cause as Cause } : {}), ...(str(opt.to) ? { to: str(opt.to) } : {}) }));
+        return 0;
+      }
+      err("검토 답은 4dd human approve|reject --review <RV…> --quote \"<PO의 말>\" 꼴입니다");
+      return 1;
     }
     if (cmd === "human") {
       const { pos, opt } = parseArgs(rest);

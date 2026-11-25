@@ -28,7 +28,7 @@ export class HumanError extends Error {
 }
 
 /** 힌트를 학습 후보로 더한다 (설계 ⑥: 횟수 초과 때 사람이 준 힌트는 바로 후보로). */
-function addLearningCandidate(root: string, harness: string, text: string, evidence: string[], node: string): string {
+export function addLearningCandidate(root: string, harness: string, text: string, evidence: string[], node: string): string {
   const file = join(root, LEARNINGS_FILE);
   const list = existsSync(file) ? ((parse(readFileSync(file, "utf8")) as Record<string, unknown>[] | null) ?? []) : [];
   const id = `L${list.length + 1}`;

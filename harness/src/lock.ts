@@ -80,6 +80,8 @@ const BLOCKED_GIT = new Set(["commit", "push", "reset", "rebase", "checkout", "s
 
 /** 셸 명령에서 막을 것을 찾는다. 커밋과 브랜치, 기록을 바꾸는 git 명령은 하네스만 한다. */
 export function bashViolation(command: string): string | null {
+  const human = humanCommandViolation(command);
+  if (human) return human;
   // 따옴표 안의 글은 명령이 아니므로 지우고 본다 ("git commit"을 출력하는 echo 등).
   const bare = command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
   for (const raw of bare.split(/&&|\|\||[;&|\n]|\$\(|`/)) {
@@ -95,6 +97,23 @@ export function bashViolation(command: string): string | null {
     }
     const sub = words[i];
     if (sub && BLOCKED_GIT.has(sub)) return `git ${sub}는 하네스만 합니다. 커밋과 브랜치는 하네스가 노드를 통과시킬 때 만듭니다`;
+  }
+  return null;
+}
+
+/** 사람만 부르는 4dd 명령 (조각 2): 승인·되돌림, 스토리, 검토 페이지 */
+const HUMAN_SUBCOMMANDS = new Set(["human", "story", "review"]);
+
+/** 셸 명령이 사람 명령을 부르나 (4dd human …, node …/cli.ts story …, npx 4dd review …) */
+export function humanCommandViolation(command: string): string | null {
+  const bare = command.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''");
+  for (const raw of bare.split(/&&|\|\||[;&|\n]|\$\(|`/)) {
+    const words = raw.trim().split(/\s+/).filter(Boolean);
+    while (words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
+    const at = words.slice(0, 4).findIndex((w) => /(^|\/)(4dd|cli\.ts)$/.test(w));
+    if (at < 0) continue;
+    const sub = words.slice(at + 1).find((w) => !w.startsWith("-"));
+    if (sub && HUMAN_SUBCOMMANDS.has(sub)) return `4dd ${sub}는 사람(PO 창구)만 부릅니다. 승인과 되돌림을 에이전트가 남길 수 없습니다`;
   }
   return null;
 }

@@ -301,6 +301,12 @@ export function resolveWrites(n: NodeDef, feature: string | null): string[] {
   return n.writes.flatMap((w) => (w.includes("{feature}") ? (feature ? [w.replaceAll("{feature}", feature)] : []) : [w]));
 }
 
+/** 지금 기능으로 writes를 풀어 둔 노드 정의 (잠금 검사는 늘 이것으로 한다) */
+export function nodeFor(set: NodeSet, id: string, feature: string | null | undefined): NodeDef {
+  const n = getNode(set, id);
+  return { ...n, writes: resolveWrites(n, feature ?? null) };
+}
+
 /** 이 노드에서 고를 수 있는 실패 원인 (분류 차례에서 에이전트에게 보여 줄 단어). */
 export function allowedCauses(set: NodeSet, id: string): Cause[] {
   return getNode(set, id).on_fail.flatMap((r) => (Array.isArray(r.when) ? r.when : [r.when]));
