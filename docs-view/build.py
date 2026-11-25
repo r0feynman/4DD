@@ -245,6 +245,17 @@ def chip(n):
     return f'<div class="{" ".join(cls)}"><span class="id">{n["id"]}</span><span>{n["name"]}</span></div>'
 
 
+def flow_card(ctx, title, body_md, notes=False):
+    """제목 + 글 상자 안의 "─▶" 흐름(칩) + 첫 문단(+ 목록)으로 된 상자."""
+    para = next((p for p in body_md.strip().split("\n\n") if not p.lstrip().startswith(("```", "- "))), "")
+    fence = re.search(r"```\n(.*?)```", body_md, flags=re.S)
+    steps = [x.strip() for x in fence.group(1).strip().split("─▶")] if fence else []
+    arrow = '<span class="arrow" aria-hidden="true">→</span>'
+    strip_html = f'<div class="flow-steps">{arrow.join(f"<span class=step>{chipify(ctx, x)}</span>" for x in steps)}</div>' if steps else ""
+    items = "".join(f"<li>{chipify(ctx, l[2:].strip())}</li>" for l in body_md.splitlines() if l.startswith("- ")) if notes else ""
+    return f'<div class="flow"><h3>{inline(title)}</h3>{strip_html}<p>{inline(para)}</p>' + (f'<ul class="skip-notes">{items}</ul>' if items else "") + "</div>"
+
+
 def chipify(ctx, text):
     """글 속 노드 ID를 방법론 색 칩으로 바꾼다. "N26부터"처럼 한글이 바로 붙어도 찾는다."""
     return re.sub(r"(?<![A-Za-z0-9])N[0-9][0-9D][FW]?(?![A-Za-z0-9])", lambda m: idchip(ctx, m.group()), inline(text))
@@ -313,7 +324,7 @@ def map_model():
     if not m:
         raise BuildError("docs/workflow.md에서 노드 맵을 찾지 못했습니다")
     stages, labels, edges, stage_of = parse_map(m.group(1))
-    outs, conns, gates = {}, {}, []
+    outs, conns, gates, ends = {}, {}, [], []
     for e in edges:
         s, d = e["src"], e["dst"]
         if s.startswith("ST") and d.startswith("ST"):
@@ -331,6 +342,10 @@ def map_model():
             else:
                 kind = "aux" if e["dotted"] else "branch"
             target, ghost = d, ""
+        elif labels.get(d, "").startswith("■"):
+            # ■ 표지: 완성 조건을 모두 채우면 프로젝트를 마치는 곳 (노드가 아니라 끝)
+            ends.append({"from": s, "label": e["label"], "text": labels[d].replace("■", "").replace("<br/>", " · ").strip()})
+            continue
         else:
             hit = NODE_ID.search(labels.get(d, ""))
             if not hit:
@@ -339,7 +354,7 @@ def map_model():
             target, kind = hit.group(), ("resume" if labels[d].startswith("↪") else "back")
             ghost = labels[d].split("<br/>")[-1]
         outs.setdefault(s, []).append({"to": target, "label": e["label"], "kind": kind, "note": ghost})
-    return stages, labels, outs, conns, gates
+    return stages, labels, outs, conns, gates, ends
 
 
 def screenless_rows():
@@ -359,7 +374,7 @@ def nodemap_data(plain=False):
     """노드 맵(nodemap.js)에 넣을 데이터. docs/workflow.md 노드 맵 + docs/nodes.md + docs/glossary.md의 TDD 루프."""
     nodes, _ = load_nodes(plain)
     by = {n["id"]: n for n in nodes}
-    stages, labels, outs, conns, gates = map_model()
+    stages, labels, outs, conns, gates, ends = map_model()
     data = {"stages": [], "nodes": {}, "edges": [], "gates": []}
     for s in sorted(stages):
         data["stages"].append({"n": s, "title": stages[s]["title"].split("·")[-1].strip(), "nodes": stages[s]["nodes"]})
@@ -375,6 +390,7 @@ def nodemap_data(plain=False):
                 e["dotted"] = conns[s]["dotted"]
             data["edges"].append(e)
     data["gates"] = [{"from": a, "to": b, "label": l} for a, b, l in gates]
+    data["end"] = ends
     # 루프 상자는 용어집의 TDD 루프만 묶는다 (오너 결정 2026-11-18)
     m = re.search(r"(TDD 루프) = (N\w+(?: → N\w+)+)", read("docs/glossary.md"))
     if not m:
@@ -436,6 +452,7 @@ def nodemap_block(causes_link=""):
     <span><b class="nm-up">↩ N03F <small>Stage 0</small></b>앞 스테이지로</span>
     <span><b class="nm-res">↪ N22 <small>Stage 2</small></b>다시 승인받고 원래 작업으로</span>
     <span><b class="nm-spr">↻ N01</b>다음 스프린트</span>
+    <span><b class="nm-fin">■ 서비스 완성</b>완성 조건을 모두 채우면 끝</span>
     <span><i class="nm-lg-box"></i>TDD 루프</span>
     <span><b class="nm-skip">화면이 없으면 건너뜀</b>Figma 노드는 화면이 있는 작업 유형에서만</span>
   </div>
@@ -507,15 +524,9 @@ def page_workflow(ctx):
     # 되돌림 경로 아래 ### 구역: 글 상자 안의 "─▶" 흐름을 칩 흐름으로, 첫 문단을 설명으로
     rb = section(wf, "## 되돌림 경로")
     route_note = next((p for p in rb.split("### ")[0].strip().split("\n\n") if not p.lstrip().startswith("|")), "")
-    flows = []
-    for m in re.finditer(r"^### (.+?)\n(.*?)(?=^### |\Z)", rb, flags=re.M | re.S):
-        title, body_md = m.group(1).strip(), m.group(2)
-        para = next((p for p in body_md.strip().split("\n\n") if not p.lstrip().startswith("```")), "")
-        fence = re.search(r"```\n(.*?)```", body_md, flags=re.S)
-        steps = [x.strip() for x in fence.group(1).strip().split("─▶")] if fence else []
-        arrow = '<span class="arrow" aria-hidden="true">→</span>'
-        strip_html = f'<div class="flow-steps">{arrow.join(f"<span class=step>{chipify(ctx, x)}</span>" for x in steps)}</div>' if steps else ""
-        flows.append(f'<div class="flow"><h3>{inline(title)}</h3>{strip_html}<p>{inline(para)}</p></div>')
+    flows = [flow_card(ctx, m.group(1).strip(), m.group(2))
+             for m in re.finditer(r"^### (.+?)\n(.*?)(?=^### |\Z)", rb, flags=re.M | re.S)]
+    done_card = flow_card(ctx, "서비스 완성", section(wf, "## 서비스 완성"), notes=True)
 
     # 화면이 없는 작업 유형: 건너뛰는 노드를 점선 상자 안에 줄 그어 보여 준다
     skips = []
@@ -552,6 +563,11 @@ def page_workflow(ctx):
   <div class="routes">{"".join(routes)}</div>
   <p class="route-note">{inline(route_note)}</p>
   {"".join(flows)}
+</section>
+<section>
+  <h2>서비스 완성</h2>
+  <p>스프린트를 몇 번 돌지는 완성 조건으로 정합니다.</p>
+  {done_card}
 </section>
 <section>
   <h2>실패 원인</h2>
@@ -626,6 +642,32 @@ def page_harness(ctx):
     )
     gap_count = sum(len(v) for v in areas.values())
 
+    # 설계 ⑥ 스스로 개선하는 루프: 단계 카드, 개선 지표, 승격 등급, 두 층
+    loop_html = "".join(
+        f'<div class="lstep c-{palette[i % len(palette)]}"><span class="n">{i + 1}</span><b>{inline(r["단계"])}</b>'
+        f'<span class="when">{inline(r["언제"])} · {inline(r["누가"])}</span><span class="do">{inline(r["하는 일"])}</span></div>'
+        for i, r in enumerate(first_table(hd, "### 개선 단계"))
+    )
+    kpi_sec = section(hd, "### 개선 지표")
+    kpi_note = next((p for p in kpi_sec.strip().split("\n\n") if not p.lstrip().startswith("|")), "")
+    kpis = "".join(
+        f'<div class="kpi{" kpi-top" if "가장 중요" in r["좋아지는 쪽"] else ""}"><span class="dir">{"↓" if "줄" in r["좋아지는 쪽"] else "↑"}</span>'
+        f'<b>{inline(r["지표"])}</b><span>{inline(r["뜻"])}</span>{"<em>가장 중요</em>" if "가장 중요" in r["좋아지는 쪽"] else ""}</div>'
+        for r in first_table(hd, "### 개선 지표")
+    )
+    grades = "".join(
+        (lambda c: f'<div class="grade c-{c}"><span class="badge c-{c}">{inline(r["승인"])}</span><b>{inline(r["변경"])}</b><span>{inline(r["조건"])}</span></div>')("human" if "사람" in r["승인"] else "sdd")
+        for r in first_table(hd, "### 승격 등급")
+    )
+    scopes = "".join(
+        f'<div class="layer c-{["sdd", "human", "bdd"][i % 3]}"><b>{inline(r["층"])}</b><span class="what">{inline(r["무엇"])}<small>{inline(r["어디"])}</small></span><span class="badge c-plain">{inline(r["올리는 조건"])}</span></div>'
+        for i, r in enumerate(first_table(hd, "### 공통 층과 프로젝트 전용 층"))
+    )
+    less = "".join(
+        f'<div class="less-row"><b>{inline(r["지점"])}</b><span class="before">{inline(r["전"])}</span><span class="arrow" aria-hidden="true">→</span><span class="after">{inline(r["후"])}</span></div>'
+        for r in first_table(hd, "### 사람 승인 줄이기")
+    )
+
     body = f"""
 <header>
   <h1>하네스 설계</h1>
@@ -662,6 +704,23 @@ def page_harness(ctx):
 <section>
   <h2>승인 3층</h2>
   <div class="tiers">{tiers}</div>
+</section>
+<section>
+  <h2>스스로 개선하는 루프</h2>
+  <p>루프마다 실패와 사람 개입에서 배우고, 바꾼 것이 정말 나아졌는지 시험한 뒤에만 규칙으로 올립니다.</p>
+  <div class="lsteps">{loop_html}<div class="lstep lnext">↻ 다음 루프는 더 짧게</div></div>
+  <h3 class="sub">개선 지표</h3>
+  <div class="kpis">{kpis}</div>
+  <p class="route-note">{inline(kpi_note)}</p>
+  <h3 class="sub">승격 등급</h3>
+  <div class="grades">{grades}</div>
+  <h3 class="sub">공통 층과 프로젝트 전용 층</h3>
+  <div class="stack">{scopes}</div>
+</section>
+<section>
+  <h2>사람 개입 줄이기</h2>
+  <p>사람은 맞는 제품인지와 기준을 바꿀지만 판단하고, 나머지는 기계 관문과 별도 리뷰 세션이 맡습니다.</p>
+  <div class="less">{less}</div>
 </section>
 <section>
   <h2>채울 빈 곳</h2>

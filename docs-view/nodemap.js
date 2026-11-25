@@ -2,6 +2,7 @@
    위에 스프린트 고리(Stage 0 → 4 → 다음 스프린트)를 두고, 스테이지를 누르면 아래에 그 스테이지의 노드를 세로로 연다.
    - 굵은 선은 앞으로 가는 경로만 긋는다. 돌아가는 경로는 노드 옆 표의 ↩ 표지로 적는다.
    - ↪ 표지는 개발 중에 앞 스테이지로 돌아갔던 작업이 다시 승인받고 원래 작업으로 돌아오는 곳이다 (kind 'resume').
+   - ■ 표지는 완성 조건을 모두 채우면 프로젝트를 마치는 곳이다 (data.end, 노드가 아니므로 경로에 넣지 않는다).
    - 루프 상자는 용어집의 TDD 루프(data.loop)만 묶는다 (오너 결정 2026-11-18).
    - 노드를 누르면 그 노드로 들어오고 나가는 돌아가는 경로를 왼쪽에 둥근 곡선으로 그린다.
      곡선은 노드에서 띄워 시작하고 끝내며, 화살촉은 그대로 둔다 (오너 요청 2026-11-23).
@@ -160,6 +161,9 @@ function fourddNodemapMount(root) {
       if (spr) wrap.append(h('div', { class: 'nm-gate nm-end' }, h('span', { class: 'nm-pin' }, h('i')),
         h('button', { class: 'nm-gl', type: 'button', 'data-go': spr.to }, '↻ ' + spr.label + ' · Stage ' + st(spr.to) + ' ' + spr.to + '부터')));
     }
+    (D.end || []).filter(function (e) { return st(e.from) === s; }).forEach(function (e) {
+      wrap.append(h('div', { class: 'nm-finbox' }, h('span', {}, e.from + ' ' + e.label + ' →'), h('span', { class: 'nm-fin' }, '■ ' + e.text)));
+    });
     return wrap;
   }
 
@@ -377,7 +381,9 @@ function fourddNodemapMount(root) {
     line('앞 스테이지에서 원래 작업으로 돌아옴', cr.rinn, 'to');
     var spr = E.filter(function (e) { return kindOf(e) === 'spr' && (st(e.from) === s || st(e.to) === s); });
     if (spr.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '다음 스프린트'), spr.map(function (e) { return h('span', { class: 'nm-it' }, h('span', { class: 'nm-ref' }, e.from), '→', chip(e.to, 'spr')); })));
-    if (!cr.out.length && !cr.inn.length && !cr.rout.length && !cr.rinn.length && !spr.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '없음. 이 스테이지 안에서만 오갑니다.')));
+    var fin = (D.end || []).filter(function (e) { return st(e.from) === s; });
+    if (fin.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '프로젝트 끝'), fin.map(function (e) { return h('span', { class: 'nm-it' }, h('span', { class: 'nm-ref' }, e.from + ' ' + e.label), '→', h('span', { class: 'nm-fin' }, '■ ' + e.text)); })));
+    if (!cr.out.length && !cr.inn.length && !cr.rout.length && !cr.rinn.length && !spr.length && !fin.length) cross.append(h('div', { class: 'nm-rl' }, h('span', {}, '없음. 이 스테이지 안에서만 오갑니다.')));
   }
 
   // ---------- 고르기와 이벤트 ----------
