@@ -26,12 +26,12 @@ description: 4DD 저장소 문서(README.md, docs/*.md, site/index.html)와 오�
 2. **빌드:** `python3 docs-view/build.py build`
    - "빌드 실패"가 나오면 대개 문서 제목이나 표 머리글을 바꿔서 생성기가 못 찾는 경우입니다. 원본 제목을 되돌리거나 `docs-view/build.py`의 해당 함수를 함께 고칩니다.
    - 노드 ID가 `docs/nodes.md`, `docs/workflow.md` 노드 맵, `site/index.html`에서 서로 다르면 빌드가 멈춥니다. 셋을 맞춥니다.
-3. **한 번 확인:** `docs-view/dist/`의 페이지를 브라우저로 한 번 봅니다. 휴대폰 폭(390px)에서 가로로 넘치지 않는지, 새 내용이 그림·카드로 보이는지 확인합니다. 노드 맵을 바꿨다면 고리가 Stage 0 → 4 → 다음 스프린트 순서인지, 스테이지를 누르면 그 스테이지의 노드가 위에서 아래로 순서대로 열리는지 눈으로 확인합니다. 아티팩트의 노드 맵은 `docs-view/nodemap.js`가 그립니다 (오너가 고른 시안 나).
+3. **한 번 확인:** `docs-view/dist/`의 페이지를 브라우저로 한 번 봅니다. 오너 화면에 창을 띄우지 않도록 창 없는 모드(headless)로 봅니다. Playwright MCP는 `--headless`로 설정돼 있습니다(2026-11-25 오너 요청). 휴대폰 폭(390px)에서 가로로 넘치지 않는지, 새 내용이 그림·카드로 보이는지 확인합니다. 노드 맵을 바꿨다면 고리가 Stage 0 → 4 → 다음 스프린트 순서인지, 스테이지를 누르면 그 스테이지의 노드가 위에서 아래로 순서대로 열리는지 눈으로 확인합니다. 아티팩트의 노드 맵은 `docs-view/nodemap.js`가 그립니다 (오너가 고른 시안 나).
    - 노드 맵 규칙: 앞 스테이지로 돌아가는 경로는 화살표로 긋지 않고 점선 상자 `R..(["↩ N02<br/>스펙으로"])`로 그립니다. 스테이지 사이는 `ST0 -- … --> ST1`처럼 스테이지끼리 잇습니다. `docs/workflow.md`와 `site/index.html`의 노드 맵은 글자까지 같아야 합니다 (검사가 확인합니다).
 4. **게시:** Artifact 도구로 게시합니다. 빌드가 출력한 값을 그대로 씁니다.
    - `url`: `https://claude.ai/artifact/QvwmRXisABunc6DLTiaegf`
    - `file_path`: `docs-view/dist/index.html`
-   - `files`: `{"workflow.html": "docs-view/dist/workflow.html", "harness.html": "docs-view/dist/harness.html", "glossary.html": "docs-view/dist/glossary.html", "changes.html": "docs-view/dist/changes.html"}`
+   - `files`: `{"workflow.html": "docs-view/dist/workflow.html", "harness.html": "docs-view/dist/harness.html", "slice1.html": "docs-view/dist/slice1.html", "glossary.html": "docs-view/dist/glossary.html", "changes.html": "docs-view/dist/changes.html"}`
 5. **기록 확인:** 게시가 끝나면 PostToolUse 훅이 `docs-view/sync.json`에 기록하고 "기록했습니다"라고 알려 줍니다. 기록을 거부했다면 그 이유(주소 다름, 페이지 빠짐, 빌드 뒤 원본 변경)를 고치고 다시 게시합니다. `sync.json`은 손으로 고치지 않습니다 (훅이 막습니다).
 6. **검사:** `python3 docs-view/build.py check` 가 "맞음"이어야 합니다.
 7. **커밋:** 문서 변경과 `docs-view/sync.json`을 같은 커밋에 넣습니다.

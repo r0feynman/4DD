@@ -1,0 +1,100 @@
+import { describe, expect, it } from "vitest";
+import { childEnv, claudeArgs, codexArgs, parseClaudeOutput, parseCodexOutput, type TurnRequest } from "../src/adapters.ts";
+
+const req: TurnRequest = { root: "/p", prompt: "할 일", sessionId: null, env: { FOURDD_NODE: "N22" }, timeoutMs: 1000 };
+
+describe("Claude 어댑터", () => {
+  it("새 세션은 --session-id, 이어 쓰기는 --resume", () => {
+    const a = claudeArgs(req, "u-1", false);
+    expect(a.slice(0, 4)).toEqual(["-p", "할 일", "--output-format", "json"]);
+    expect(a).toContain("--session-id");
+    expect(claudeArgs(req, "u-1", true)).toContain("--resume");
+  });
+
+  it("오너의 전역 설정을 빼고 하네스 훅만 넣는다", () => {
+    const a = claudeArgs(req, "u-1", false);
+    expect(a[a.indexOf("--setting-sources") + 1]).toBe("project");
+    expect(a[a.indexOf("--settings") + 1]).toBe("/p/.4dd/hooks/claude.json");
+    expect(a).toEqual(expect.arrayContaining(["--strict-mcp-config", "--disable-slash-commands"]));
+    expect(a).toContain("Bash(git commit *)");
+  });
+
+  it("리뷰 세션은 읽기 도구만, 정해진 출력 형식", () => {
+    const a = claudeArgs({ ...req, readOnly: true, jsonSchema: { type: "object" } }, "u-1", false);
+    expect(a[a.indexOf("--tools") + 1]).toBe("Read,Glob,Grep");
+    expect(a[a.indexOf("--json-schema") + 1]).toBe('{"type":"object"}');
+    expect(a).not.toContain("--allowedTools");
+  });
+
+  it("결과 JSON에서 세션, 토큰, 가격, 차례 수를 읽는다", () => {
+    const out = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: "s-9",
+      result: "S1 인수 테스트를 썼습니다",
+      num_turns: 6,
+      total_cost_usd: 0.21,
+      usage: { input_tokens: 10, cache_creation_input_tokens: 2000, cache_read_input_tokens: 5000, output_tokens: 300 },
+    });
+    expect(parseClaudeOutput(`경고 한 줄\n${out}\n`)).toEqual({
+      ok: true,
+      sessionId: "s-9",
+      text: "S1 인수 테스트를 썼습니다",
+      tokens: { input: 2010, output: 300, cached: 5000 },
+      costUsd: 0.21,
+      turns: 6,
+    });
+  });
+
+  it("오류 결과", () => {
+    const r = parseClaudeOutput(JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true, session_id: "s", result: "" }));
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("error_max_turns");
+    expect(parseClaudeOutput("").ok).toBe(false);
+  });
+});
+
+describe("Codex 어댑터", () => {
+  it("새 세션은 폴더와 샌드박스를 주고, 이어 쓰기는 resume", () => {
+    expect(codexArgs(req, null)).toEqual(["exec", "--json", "-C", "/p", "-s", "workspace-write", "할 일"]);
+    expect(codexArgs({ ...req, sessionId: "t-1" }, null)).toEqual(["exec", "resume", "t-1", "--json", "할 일"]);
+    expect(codexArgs({ ...req, readOnly: true }, "/tmp/s.json")).toEqual(["exec", "--json", "-C", "/p", "-s", "read-only", "--output-schema", "/tmp/s.json", "할 일"]);
+  });
+
+  it("JSONL 이벤트에서 세션, 마지막 메시지, 토큰을 읽는다", () => {
+    const lines = [
+      { type: "thread.started", thread_id: "t-7" },
+      { type: "turn.started" },
+      { type: "item.completed", item: { type: "command_execution", command: "npx vitest" } },
+      { type: "item.completed", item: { type: "agent_message", text: '{"pass":true}' } },
+      { type: "turn.completed", usage: { input_tokens: 9000, cached_input_tokens: 6000, output_tokens: 400 } },
+    ].map((e) => JSON.stringify(e));
+    expect(parseCodexOutput(lines.join("\n"))).toEqual({
+      ok: true,
+      sessionId: "t-7",
+      text: '{"pass":true}',
+      structured: { pass: true },
+      tokens: { input: 3000, output: 400, cached: 6000 },
+      turns: 1,
+    });
+  });
+
+  it("실패 이벤트", () => {
+    const r = parseCodexOutput(JSON.stringify({ type: "turn.failed", error: { message: "usage limit" } }));
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("usage limit");
+  });
+});
+
+describe("하위 에이전트 환경", () => {
+  it("하네스를 띄운 도구의 환경 변수는 빼고 노드 정보를 넣는다", () => {
+    process.env.CLAUDE_CODE_SIMPLE = "1";
+    process.env.ANTHROPIC_BASE_URL = "http://x";
+    const env = childEnv({ FOURDD_NODE: "N22" });
+    expect(env.CLAUDE_CODE_SIMPLE).toBeUndefined();
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.FOURDD_NODE).toBe("N22");
+    expect(env.PATH).toBe(process.env.PATH);
+  });
+});

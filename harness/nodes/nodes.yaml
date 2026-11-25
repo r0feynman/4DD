@@ -1,0 +1,143 @@
+# 4DD 노드 정의의 원본 (하네스 설계 ①, 첫 구현 조각 명세 「노드마다 누가 무엇을」)
+#
+# 첫 구현 조각은 Stage 2(N21~N29)만 둔다. N26F(화면 비교)는 조각 3에서 더한다.
+# 노드 순서는 이 파일에 적힌 순서이고, next로 바꿀 수 있다.
+#
+# actor:   harness(지휘 프로그램이 직접) | worker(작업 세션) | reviewer(별도 리뷰 세션)
+# gate:    노드가 끝났는지 기계가 보는 조건. expect: pass면 명령이 성공해야, fail이면 실패해야 통과.
+#          작업 노드에서 조건을 못 채우면 같은 노드를 다시 시킨다.
+# on_fail: 판단 노드가 실패했을 때 실패 원인(통제 어휘)별로 갈 곳. human은 사람을 기다린다.
+#          then은 고친 뒤 이어서 갈 곳이다.
+
+version: 0.1.0
+defaults:
+  budget: 3            # 판단 노드별 연속 실패 한도
+  task_budget: 10      # 작업 하나의 되돌림 총합 한도
+  flaky_retries: 1     # test_flaky 자동 재실행 (횟수에 안 셈)
+  turn_timeout_min: 15 # 세션 한 차례의 시간 제한
+
+N21:
+  name: 작업 하나 선택
+  stage: 2
+  method: sdd
+  kind: work
+  actor: harness
+  writes: [".4dd/**"]
+
+N22:
+  name: 인수 테스트 작성 (처음엔 실패)
+  stage: 2
+  method: bdd
+  kind: work
+  actor: worker
+  instruction: instructions/N22.md
+  reads: [task, requirements, scenarios, design, last_gate, hint]
+  writes: ["tests/acceptance/**"]
+  gate:
+    run: "{commands.run_files} {task.scenario_files}"
+    expect: fail
+    reentry: any          # 구현이 이미 있는 작업으로 돌아오면 실패하지 않아도 됨
+    already_met: N26      # 앞 작업의 구현으로 이미 통과하면 N23~N25를 건너뜀 (N27 리뷰가 테스트를 확인, 2026-11-25 오너 결정)
+    checks: [scenario_files_exist]
+
+N23:
+  name: Red · 실패하는 단위 테스트 작성
+  stage: 2
+  method: tdd
+  kind: work
+  actor: worker
+  instruction: instructions/N23.md
+  reads: [task, requirements, design, last_gate, hint]
+  writes: ["tests/unit/**"]
+  gate:
+    run: "{commands.unit}"
+    expect: fail
+    checks: [new_tests]
+
+N24:
+  name: Green · 통과하게 구현
+  stage: 2
+  method: tdd
+  kind: work
+  actor: worker
+  instruction: instructions/N24.md
+  reads: [task, requirements, scenarios, design, last_gate, hint]
+  writes: ["src/**"]
+  gate:
+    run: "{commands.unit}"
+    expect: pass
+
+N25:
+  name: Refactor · 코드 정리
+  stage: 2
+  method: tdd
+  kind: work
+  actor: worker
+  instruction: instructions/N25.md
+  reads: [task, design, last_gate, hint]
+  writes: ["src/**"]
+  gate:
+    run: "{commands.unit}"
+    expect: pass
+    checks: [test_count_kept]
+
+N26:
+  name: 인수 테스트 통과?
+  stage: 2
+  method: bdd
+  kind: decision
+  actor: harness
+  gate:
+    run: "{commands.run_files} {task.scenario_files}"
+    expect: pass
+    flaky_rerun: true
+  on_fail:
+    - when: code_bug
+      goto: N23
+    - when: test_flaky
+      goto: N22
+      then: N26
+    - when: [spec_ambiguous, spec_missing_state, env]
+      goto: human
+      then: N22
+
+N27:
+  name: 설계 스펙과 일치?
+  stage: 2
+  method: sdd
+  kind: decision
+  actor: reviewer
+  instruction: instructions/N27.md
+  reads: [task, requirements, design, diff]
+  on_fail:
+    - when: code_bug
+      goto: N23
+    - when: arch_wrong
+      goto: human
+      then: N21
+
+N28:
+  name: DoD 충족?
+  stage: 2
+  method: scrum
+  kind: decision
+  actor: harness
+  gate:
+    run: ["{commands.unit}", "{commands.acceptance}"]
+    expect: pass
+    checks: [tdd_order, test_count_kept, no_new_skips, locked_unchanged]
+  on_fail:
+    - when: code_bug
+      goto: N23
+    - when: env
+      goto: human
+      then: N28
+
+N29:
+  name: 작업 완료 체크
+  stage: 2
+  method: sdd
+  kind: work
+  actor: harness
+  writes: ["specs/*/tasks.md"]
+  next: N21

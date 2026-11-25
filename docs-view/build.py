@@ -28,6 +28,7 @@ PAGES = [
     ("index.html", "개발론"),
     ("workflow.html", "워크플로"),
     ("harness.html", "하네스 설계"),
+    ("slice1.html", "첫 구현 조각"),
     ("glossary.html", "용어집"),
     ("changes.html", "변경 기록"),
 ]
@@ -859,6 +860,198 @@ def page_harness(ctx):
     return subpage(ctx, "harness.html", "4DD 하네스 설계", body)
 
 
+# ---------------------------------------------------------------- 페이지: 첫 구현 조각
+
+WHO = {"하네스": "w-h", "작업 세션": "w-w", "리뷰 세션": "w-r"}
+
+
+def page_slice1(ctx):
+    sd = read("docs/harness-slice1.md")
+    intro_paras = [p.strip() for p in sd.split("\n## ", 1)[0].split("\n\n") if p.strip() and not p.lstrip().startswith(("#", ">"))]
+    if not intro_paras:
+        raise BuildError("첫 구현 조각 명세의 첫 문단을 찾지 못했습니다")
+
+    decided = "".join(
+        f'<div class="card top c-human"><span class="k">{inline(r["항목"])} · 오너 결정</span><span class="t">{inline(r["결정"])}</span><span class="d">{inline(r["이유"])}</span></div>'
+        for r in first_table(sd, "## 정한 것")
+    )
+
+    scope = dict(bold_bullets(section(sd, "## 범위")))
+    if "하는 것" not in scope or "하지 않는 것" not in scope:
+        raise BuildError("범위에서 「하는 것」, 「하지 않는 것」을 찾지 못했습니다")
+    do_items = [x.strip().rstrip(".") for x in scope["하는 것"].split(", ")]
+    not_text, _, not_note = scope["하지 않는 것"].partition(". ")
+    not_items = [x.strip().rstrip(".") for x in not_text.split(", ")]
+    scope_html = (
+        f'<div class="scope-col scope-do"><h3>하는 것</h3><div class="sc-chips">{"".join(f"<span class=sc>{chipify(ctx, x)}</span>" for x in do_items)}</div></div>'
+        f'<div class="scope-col scope-not"><h3>하지 않는 것</h3><div class="sc-chips">{"".join(f"<span class=sc>{chipify(ctx, x)}</span>" for x in not_items)}</div><small>{inline(not_note)}</small></div>'
+    )
+
+    parts = first_table(sd, "## 구조")
+    parts_html = (
+        f'<div class="part part-main"><b>{inline(parts[0]["부분"])}</b><span>{inline(parts[0]["하는 일"])}</span></div>'
+        '<div class="part-arrow" aria-hidden="true">↓ 부리고 기록함</div>'
+        '<div class="parts">' + "".join(f'<div class="part"><b>{inline(r["부분"])}</b><span>{chipify(ctx, r["하는 일"])}</span></div>' for r in parts[1:]) + "</div>"
+    )
+
+    nrows = []
+    for r in first_table(sd, "## 노드마다 누가 무엇을"):
+        nid = r["노드"].strip()
+        who = r["누가"].strip()
+        writes = r["고칠 수 있는 곳"].strip()
+        wchips = "".join(f'<code class="wr">{esc(w.strip(" `"))}</code>' for w in writes.split(",")) if writes not in ("—", "") and "`" in writes else f'<span class="wr-none">{"고치는 곳 없음" if writes in ("—", "") else inline(writes)}</span>'
+        fail = r["실패하면"].strip()
+        nrows.append(
+            f'<div class="nrow"><div class="nhead">{idchip(ctx, nid)}<span class="who {WHO.get(who, "w-h")}">{esc(who)}</span></div>'
+            f'<div class="nbody"><div class="nwr">{wchips}</div><div class="npass"><i>통과</i>{chipify(ctx, r["통과 조건"])}</div>'
+            f'{"" if fail in ("—", "") else f"<div class=nfail><i>실패</i>{chipify(ctx, fail)}</div>"}</div></div>'
+        )
+
+    cmds_h, cmds_m = [], []
+    for r in first_table(sd, "## `4dd` 명령"):
+        card = (f'<div class="cmd"><code>{esc(r["명령"].strip("` ").replace(chr(92) + "|", "|"))}</code>'
+                f'<span>{inline(r["하는 일"])}</span><small>{inline(r["종료 코드"])}</small></div>')
+        (cmds_h if r["누가 부르나"].strip() == "사람" else cmds_m).append(card)
+
+    cmp_rows = first_table(sd, "## 도구 어댑터")
+    keys = list(cmp_rows[0].keys())
+    label_key = keys[0]
+    cmp_html = "".join(
+        f'<div class="cmp-row"><b>{inline(r[label_key])}</b><span><em>Claude</em>{inline(r["Claude"])}</span><span><em>Codex</em>{inline(r["Codex"])}</span></div>'
+        for r in cmp_rows
+    )
+
+    guard_sec = section(sd, "## 잠금을 지키는 겹")
+    m = re.search(r"```\n(.*?)```", guard_sec, flags=re.S)
+    if not m:
+        raise BuildError("잠금을 지키는 겹 그림을 찾지 못했습니다")
+    layers = [x.strip() for x in m.group(1).strip().split("─▶")]
+    notes = bold_bullets(guard_sec)
+    gsteps = []
+    for i, name in enumerate(layers):
+        short = name.split(" (")[0]
+        note = next((v for k, v in notes if short in k or k in short), "")
+        key = " g-key" if "결정적" in note else ""
+        if gsteps:
+            gsteps.append('<span class="sep" aria-hidden="true">→</span>')
+        gsteps.append(f'<div class="step c-plain{key}"><b>{inline(name)}</b><span class="do">{chipify(ctx, head_sentence(note))}</span></div>')
+
+    cls_items = [l.split(". ", 1)[1] for l in section(sd, "## 실패 원인 분류").splitlines() if re.match(r"^\d+\. ", l)]
+    cls_html = "".join(f'<div class="lstep c-plain"><span class="n">{i + 1}</span><span class="do">{chipify(ctx, t)}</span></div>' for i, t in enumerate(cls_items))
+
+    events = "".join(
+        f'<div class="ev"><code>{esc(r["이벤트"].strip("` "))}</code><span>{inline(r["언제"])}</span><small>{inline(r["주요 필드"])}</small></div>'
+        for r in first_table(sd, "## 원장 이벤트")
+    )
+
+    human = "".join(
+        f'<div class="less-row"><b>{inline(r["언제"])}</b><span class="before">{inline(r["사람이 하는 일"])}</span><span class="arrow" aria-hidden="true">→</span><span class="after">{inline(r["명령"])}</span></div>'
+        for r in first_table(sd, "## 사람이 하는 일")
+    )
+
+    steps = first_table(sd, "## 구현 순서")
+    steps_html = "".join(
+        f'<div class="lstep c-plain"><span class="n">{esc(r["단계"])}</span><b>{inline(r["만드는 것"])}</b><span class="when">확인 · {chipify(ctx, r["확인"])}</span></div>'
+        for r in steps
+    )
+    order_note = next((p.strip() for p in section(sd, "## 구현 순서").split("\n\n") if p.strip() and not p.lstrip().startswith("|")), "")
+
+    done = [l[6:].strip() for l in section(sd, "## 완료 기준").splitlines() if l.startswith("- [ ] ")]
+    done_html = "".join(f'<li><span class="box" aria-hidden="true"></span><span>{chipify(ctx, d)}</span></li>' for d in done)
+
+    verify = "".join(
+        f'<div class="card top c-plain"><span class="k">확인할 것</span><span class="t">{inline(k)}</span><span class="d">{inline(v)}</span></div>'
+        for k, v in bold_bullets(section(sd, "## 구현하며 확인할 것"))
+    )
+    nexts = "".join(
+        f'<div class="lstep c-plain"><span class="n">조각 {esc(r["조각"])}</span><span class="do">{chipify(ctx, r["붙이는 것"])}</span></div>'
+        for r in first_table(sd, "## 다음 조각")
+    )
+
+    body = f"""
+<header>
+  <h1>첫 구현 조각</h1>
+  <p class="lead">{inline(intro_paras[0])}</p>
+  <div class="stats">
+    <div class="stat"><b>{len(nrows)}</b><span>노드</span></div>
+    <div class="stat"><b>{len(cmds_h) + len(cmds_m)}</b><span>4dd 명령</span></div>
+    <div class="stat"><b>{len(steps)}</b><span>구현 단계</span></div>
+    <div class="stat"><b>{len(done)}</b><span>완료 기준</span></div>
+  </div>
+</header>
+<section>
+  <h2>정한 것</h2>
+  <div class="cards onto-cards">{decided}</div>
+</section>
+<section>
+  <h2>범위</h2>
+  <div class="scope">{scope_html}</div>
+</section>
+<section>
+  <h2>구조</h2>
+  <div class="structure">{parts_html}</div>
+</section>
+<section>
+  <h2>노드마다 누가 무엇을</h2>
+  <p>세 가지 모양이 누가 하는지를 나타냅니다: <span class="who w-h">하네스</span> <span class="who w-w">작업 세션</span> <span class="who w-r">리뷰 세션</span></p>
+  <div class="nflow">{"".join(nrows)}</div>
+</section>
+<section>
+  <h2>잠금을 지키는 겹</h2>
+  <p>앞쪽일수록 빨리 막고, 굵은 테두리의 차례 뒤 변경 검사가 결정적인 겹입니다.</p>
+  <div class="pipeline">{"".join(gsteps)}</div>
+</section>
+<section>
+  <h2>실패 원인 분류</h2>
+  <div class="lsteps">{cls_html}</div>
+</section>
+<section>
+  <h2><code>4dd</code> 명령</h2>
+  <h3 class="sub">사람이 부르는 것</h3>
+  <div class="cmds">{"".join(cmds_h)}</div>
+  <h3 class="sub">지휘 프로그램과 훅이 부르는 것</h3>
+  <div class="cmds">{"".join(cmds_m)}</div>
+</section>
+<section>
+  <h2>도구 어댑터</h2>
+  <div class="cmp">{cmp_html}</div>
+</section>
+<section>
+  <h2>원장 이벤트</h2>
+  <p>한 줄에 하나, 추가만 합니다. 내용은 남기지 않고 ID, 해시, 숫자만 남깁니다.</p>
+  <div class="evs">{events}</div>
+</section>
+<section>
+  <h2>사람이 하는 일</h2>
+  <div class="less">{human}</div>
+</section>
+<section>
+  <h2>구현 순서</h2>
+  <div class="lsteps">{steps_html}</div>
+  <p class="route-note">{inline(order_note)}</p>
+</section>
+<section>
+  <h2>완료 기준</h2>
+  <ul class="chk">{done_html}</ul>
+</section>
+<section>
+  <h2>구현하며 확인할 것</h2>
+  <div class="cards onto-cards">{verify}</div>
+</section>
+<section>
+  <h2>다음 조각</h2>
+  <div class="lsteps">{nexts}</div>
+</section>
+{source_block("docs/harness-slice1.md")}
+"""
+    return subpage(ctx, "slice1.html", "4DD 첫 구현 조각", body)
+
+
+def head_sentence(text):
+    head, _, rest = text.partition(". ")
+    return head + ("." if rest else "")
+
+
 # ---------------------------------------------------------------- 페이지: 용어집
 
 def page_glossary(ctx):
@@ -985,6 +1178,7 @@ def page_index(ctx):
     <div class="cards">
       <a class="card top c-bdd" href="workflow.html"><span class="k">워크플로</span><span class="t">노드 {wf["nodes"]}개와 되돌림</span><span class="d">스테이지 레인, 실패 원인 {wf["causes"]}개, 횟수 제한</span></a>
       <a class="card top c-sdd" href="harness.html"><span class="k">하네스 설계</span><span class="t">결정 {wf["decisions"]}건 · 열린 결정 {wf["open"]}건</span><span class="d">에이전트가 이 절차를 따르게 하는 구조</span></a>
+      <a class="card top c-tdd" href="slice1.html"><span class="k">첫 구현 조각</span><span class="t">구현 {wf["slice_steps"]}단계 · 완료 기준 {wf["slice_done"]}개</span><span class="d">백엔드 기능 하나가 Stage 2를 사람 손 없이 도는 것부터</span></a>
       <a class="card top c-scrum" href="glossary.html"><span class="k">용어집</span><span class="t">용어 {wf["terms"]}개</span><span class="d">노드 ID 읽는 법, 스테이지, 용어</span></a>
       <a class="card top c-fig" href="changes.html"><span class="k">변경 기록</span><span class="t">{wf["changes"]}건 · 최근 {esc(wf["latest"])}</span><span class="d">언제 무엇이 바뀌었나</span></a>
     </div>
@@ -1032,6 +1226,8 @@ def make_context():
         "terms": len(first_table(gl, "## 구조 용어")) + len(first_table(gl, "## 방법론 용어")),
         "changes": len(changes),
         "latest": changes[0]["date"],
+        "slice_steps": len(first_table(read("docs/harness-slice1.md"), "## 구현 순서")),
+        "slice_done": sum(1 for l in section(read("docs/harness-slice1.md"), "## 완료 기준").splitlines() if l.startswith("- [ ] ")),
     }
     return ctx
 
@@ -1046,6 +1242,7 @@ def build():
         "index.html": page_index(ctx),
         "workflow.html": page_workflow(ctx),
         "harness.html": page_harness(ctx),
+        "slice1.html": page_slice1(ctx),
         "glossary.html": page_glossary(ctx),
         "changes.html": page_changes(ctx),
     }

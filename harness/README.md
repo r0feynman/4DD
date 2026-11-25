@@ -1,0 +1,71 @@
+# 4DD 하네스
+
+에이전트(Claude, Codex)가 4DD 절차대로 개발하게 하는 지휘 프로그램과 검사 도구입니다. 무엇을 왜 만드는지는 [하네스 설계](../docs/harness-design.md)에, 지금 만드는 범위와 순서는 [첫 구현 조각 명세](../docs/harness-slice1.md)에 있습니다.
+
+## 진행
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | 시험 프로젝트 원본과 추적 ID 검사 | 끝 |
+| 2 | 뼈대: `nodes.yaml`, 원장, `state.json` | 끝 |
+| 3 | `4dd check`와 훅 (Claude, Codex, git), `4dd init` | 끝 |
+| 4 | 관문 (N22~N26, N28) | 끝 |
+| 5 | 도구 어댑터 (Claude, Codex) | Claude 끝. Codex는 훅 신뢰 뒤 확인 |
+| 6 | 지휘 루프 `4dd run`, N27 리뷰 세션, `4dd human` | 끝 |
+| 7 | 실패 원인 분류(에이전트가 고름) | 끝 |
+| 8 | `4dd report` | 끝 |
+| 9 | 완료 기준 전체를 Claude와 Codex로 | 끝: 두 도구 모두 T1~T3을 사람 개입 없이 |
+
+## 폴더
+
+```
+src/cli.ts                  4dd 명령의 입구
+src/trace.ts                추적 ID 검사 (R, @S, T)
+src/nodes.ts                노드 정의 읽기와 형식 검사, 다음 노드, 실패 원인별 경로
+src/config.ts               프로젝트 설정(4dd.config.yaml) 읽기
+src/ledger.ts               원장(.4dd/events.jsonl) 쓰기·읽기
+src/state.ts                원장에서 state.json 만들기
+src/glob.ts                 경로 패턴 (writes, locked)
+src/lock.ts                 쓰기 잠금 규칙, 기준 해시, 차례 뒤 변경 검사, 원장 지키기
+src/hooks.ts                Claude·Codex 훅 입구
+src/guard.ts                git pre-commit과 차례 뒤 변경 검사 (원장 기록 포함)
+src/git.ts                  git 부르기
+src/init.ts                 4dd init
+src/gate.ts                 관문: 명령 실행, 추가 검사, test_flaky·env 판정
+src/testscan.ts             소스에서 테스트 수와 건너뛰기 표시 세기
+src/context.ts              세션에 보낼 지시문과 「이번 작업」 모으기
+src/adapters.ts             도구 어댑터: Claude(claude -p), Codex(codex exec)
+src/turn.ts                 작업 세션 노드 한 차례
+src/setup.ts                4dd setup codex (사용자 설정에 Codex 훅)
+src/route.ts                원장만 보고 다음 할 일 정하기
+src/run.ts                  4dd run: 지휘 루프 (작업 선택, 노드 실행, 커밋, 횟수 제한, 사람 대기)
+src/human.ts                4dd human: 승인, 힌트(학습 후보), 분류 바로잡기, 보류
+src/classify.ts             실패 원인 분류 (기계 → 세션이 고름 → 기본 원인)
+src/report.ts               4dd report: 개선 지표와 반복 실수·비효율 질의
+nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
+nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
+test/                       하네스 테스트
+fixtures/login-backend/     시험 프로젝트 원본 (4dd init이 복사해서 돌림)
+```
+
+## 쓰는 법
+
+Node 24 이상이 필요합니다. TypeScript 파일을 Node가 바로 실행하므로 빌드 단계가 없습니다.
+
+```bash
+npm install
+npm test
+npm run typecheck
+node src/cli.ts check trace fixtures/login-backend
+node src/cli.ts status <프로젝트 폴더>
+node src/cli.ts init <새 폴더>          # 시험 프로젝트를 새 git 저장소로
+node src/cli.ts check path specs/login/spec.md --node N22 --root <프로젝트 폴더>
+node src/cli.ts gate N24 --task T1 --run NR1 --root <프로젝트 폴더>
+node src/cli.ts context N22 --task T1 --root <프로젝트 폴더>
+node src/cli.ts turn N22 --task T1 --agent claude --root <프로젝트 폴더>   # 실제 에이전트를 돌림 (사용량이 듦)
+node src/cli.ts setup codex                                              # 한 번만. 그다음 codex에서 /hooks로 신뢰
+node src/cli.ts run --agent claude --max-tasks 1 --root <프로젝트 폴더>   # 지휘 루프 (실제 에이전트, 사용량이 듦)
+node src/cli.ts human hint "<힌트>" --root <프로젝트 폴더>                 # 사람을 기다릴 때
+```
+
+`4dd check`의 종료 코드는 0 통과, 2 막음, 1 잘못된 사용이나 오류입니다. 추적 검사의 주의는 통과로 칩니다. 전체 명령은 `node src/cli.ts`를 인자 없이 돌리면 나옵니다.
