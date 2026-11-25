@@ -44,6 +44,8 @@ const GateSchema = z.strictObject({
   run: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
   expect: z.enum(["pass", "fail"]),
   flaky_rerun: z.boolean().optional(),
+  /** any: 그 작업에서 N24(구현)가 이미 통과했으면 명령 결과를 따지지 않는다 (구현이 있는 작업으로 다시 돌아온 경우) */
+  reentry: z.enum(["same", "any"]).optional(),
   checks: z.array(z.enum(GATE_CHECKS)).optional(),
 });
 

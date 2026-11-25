@@ -127,14 +127,15 @@ export function buildContext(opts: ContextOptions): BuiltContext {
     work.push(`### 이 작업의 변경분 (git diff ${ref.slice(0, 7)}..HEAD -- src tests)\n\`\`\`diff\n${diff || "(변경 없음)"}\n\`\`\``);
   }
   if (node.reads.includes("last_gate")) {
-    const failed = lastFor(events, "gate_run", (e) => e.task === task && e.result === "fail");
     const lastEnd = lastFor(events, "node_end", (e) => e.task === task);
-    // 마지막 노드가 실패했고, 그 실패가 관문 실패일 때만 붙인다 (이미 지나간 실패는 넣지 않는다).
-    if (failed && lastEnd && lastEnd.result === "fail" && lastEnd.id === failed.run) {
-      const summary = join(root, GATE_DIR, `${failed.run}.summary.md`);
-      const log = join(root, GATE_DIR, `${failed.id}.log`);
-      const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-60).join("\n") : "";
-      work.push(`### 지난 관문 결과 (${lastEnd.node}, ${failed.id})\n${existsSync(summary) ? readFileSync(summary, "utf8").trim() : ""}\n\n출력 끝부분:\n\`\`\`\n${tail.trim()}\n\`\`\``);
+    // 마지막 노드가 실패했을 때만 붙인다 (이미 지나간 실패는 넣지 않는다). 관문 요약이나 리뷰 지적, 그리고 실패한 명령의 출력 끝부분.
+    if (lastEnd && lastEnd.result === "fail") {
+      const summary = join(root, GATE_DIR, `${lastEnd.id}.summary.md`);
+      const failed = lastFor(events, "gate_run", (e) => e.run === lastEnd.id && e.result === "fail");
+      const log = failed ? join(root, GATE_DIR, `${failed.id}.log`) : "";
+      const tail = log && existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-60).join("\n").trim() : "";
+      const body = [existsSync(summary) ? readFileSync(summary, "utf8").trim() : "", tail ? `출력 끝부분:\n\`\`\`\n${tail}\n\`\`\`` : ""].filter(Boolean).join("\n\n");
+      if (body) work.push(`### 지난 관문 결과 (${lastEnd.node}${failed ? `, ${failed.id}` : ""})\n${body}`);
     }
   }
   if (node.reads.includes("hint")) {

@@ -200,13 +200,18 @@ export function runGate(ctx: GateContext): GateOutcome {
     return { node: ctx.nodeId, passed: true, runs: [], checks: [], summary: `${ctx.nodeId}: 이 작업에서 통과시킬 시나리오가 없어 관문을 건너뜁니다` };
   }
 
+  // 구현이 이미 있는 작업으로 다시 돌아왔으면(test_flaky를 고치러 오거나 스펙을 고친 뒤) "처음엔 실패"를 요구할 수 없다.
+  const reentry =
+    gate.reentry === "any" &&
+    !!ctx.task &&
+    readEvents(ctx.root).events.some((e) => e.type === "node_end" && e.task === ctx.task && e.node === "N24" && e.result === "pass");
   const runs: GateRunResult[] = [];
   let cause: Cause | undefined;
   for (const template of commands) {
     const command = expand(template, ctx.config, scenarios.files);
     let r = runCommand(ctx.root, command, timeoutMs);
     const envProblem = r.timedOut || r.exit === 126 || r.exit === 127;
-    const met = (exit: number) => (gate.expect === "pass" ? exit === 0 : exit !== 0);
+    const met = (exit: number) => reentry || (gate.expect === "pass" ? exit === 0 : exit !== 0);
     if (envProblem) {
       runs.push(record(ctx, command, r.exit, "fail", false, r.output));
       cause = "env";

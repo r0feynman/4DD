@@ -7,6 +7,9 @@ import { adapterFor, type Agent } from "./adapters.ts";
 import { loadConfig } from "./config.ts";
 import { buildContext } from "./context.ts";
 import { runGate } from "./gate.ts";
+import { humanAction, type HumanKind } from "./human.ts";
+import { writeReport } from "./report.ts";
+import { runLoop } from "./run.ts";
 import { setupCodexHooks } from "./setup.ts";
 import { runSessionNode } from "./turn.ts";
 import { checkCommit, checkDiff } from "./guard.ts";
@@ -20,6 +23,9 @@ import { checkProject, formatIssues } from "./trace.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
+  run [--agent claude|codex] [--max-tasks N] [--root 폴더]   지휘 루프. 끝나거나 사람이 필요할 때까지 돈다 (0 끝 · 3 사람 대기 · 1 오류)
+  human <approve|hint|reclassify|hold> [글|원인] [--minutes N] [--root 폴더]   사람 개입을 남기고 다시 시작할 수 있게 한다
+  report [--root 폴더]                         원장만으로 개선 지표와 반복 실수·비효율 질의 결과 (.4dd/report.md)
   init <폴더> [--from <원본>] [--no-install]   시험 프로젝트를 새 git 저장소로 만들고 훅과 기준 해시를 건다
   setup codex [--codex-home 폴더]               Codex 사용자 설정(~/.codex/hooks.json)에 4DD 훅을 한 번 넣는다
   status [폴더]                                지금 작업과 노드, 기다리는 이유
@@ -244,6 +250,34 @@ function init(args: string[]): number {
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   try {
+    if (cmd === "run") {
+      const { opt } = parseArgs(rest);
+      const r = runLoop({
+        root: resolve(str(opt.root) ?? "."),
+        ...(str(opt.agent) ? { agent: str(opt.agent) as Agent } : {}),
+        ...(str(opt["max-tasks"]) ? { maxTasks: Number(str(opt["max-tasks"])) } : {}),
+        log: (line) => out(`[4DD] ${line}`),
+      });
+      const fine = r.reason === "done" || r.reason === "paused";
+      (fine ? out : err)(r.message);
+      return fine ? 0 : r.reason === "error" ? 1 : 3;
+    }
+    if (cmd === "human") {
+      const { pos, opt } = parseArgs(rest);
+      const kind = pos[0] as HumanKind;
+      if (!["approve", "hint", "reclassify", "hold"].includes(kind)) {
+        err(USAGE);
+        return 1;
+      }
+      const minutes = str(opt.minutes);
+      out(humanAction(resolve(str(opt.root) ?? "."), kind, pos.slice(1).join(" ") || undefined, minutes ? Number(minutes) : undefined));
+      return 0;
+    }
+    if (cmd === "report") {
+      const r = writeReport(resolve(str(parseArgs(rest).opt.root) ?? "."), loadNodes());
+      out(`${r.text}\n(${r.file}에도 썼습니다)`);
+      return 0;
+    }
     if (cmd === "init") return init(rest);
     if (cmd === "setup" && rest[0] === "codex") {
       const r = setupCodexHooks(str(parseArgs(rest.slice(1)).opt["codex-home"]));

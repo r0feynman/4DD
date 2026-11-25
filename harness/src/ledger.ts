@@ -98,7 +98,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     text_hash: z.string().optional(),
   }),
   z.strictObject({ type: z.literal("commit"), ...Common, sha: z.string().regex(/^[0-9a-f]{7,40}$/), node: Node, task: Task.nullable() }),
-  z.strictObject({ type: z.literal("run_end"), ...Common, run: Id("RUN"), reason: z.enum(["done", "wait_human", "error", "stopped"]) }),
+  /** paused: 작업 수 한도로 잠시 멈춤 (그대로 다시 돌리면 됨) · stopped: 사람이 고치고 승인해야 다시 감 · error: 하네스 오류 */
+  z.strictObject({ type: z.literal("run_end"), ...Common, run: Id("RUN"), reason: z.enum(["done", "wait_human", "paused", "error", "stopped"]) }),
 ]);
 
 export type LedgerEvent = z.infer<typeof EventSchema>;

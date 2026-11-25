@@ -36,6 +36,7 @@ N22:
   gate:
     run: "{commands.acceptance} {task.scenario_files}"
     expect: fail
+    reentry: any          # 구현이 이미 있는 작업으로 돌아오면 실패하지 않아도 됨
     checks: [scenario_files_exist]
 
 N23:
@@ -106,7 +107,7 @@ N27:
   kind: decision
   actor: reviewer
   instruction: instructions/N27.md
-  reads: [design, diff]
+  reads: [task, requirements, design, diff]
   on_fail:
     - when: code_bug
       goto: N23

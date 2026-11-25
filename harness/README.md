@@ -11,7 +11,10 @@
 | 3 | `4dd check`와 훅 (Claude, Codex, git), `4dd init` | 끝 |
 | 4 | 관문 (N22~N26, N28) | 끝 |
 | 5 | 도구 어댑터 (Claude, Codex) | Claude 끝. Codex는 훅 신뢰 뒤 확인 |
-| 6 | 지휘 루프 `4dd run` | 다음 |
+| 6 | 지휘 루프 `4dd run`, N27 리뷰 세션, `4dd human` | 끝 |
+| 7 | 실패 원인 분류(에이전트가 고름) | 끝 |
+| 8 | `4dd report` | 끝 |
+| 9 | 완료 기준 전체를 Claude와 Codex로 | 다음: 사용량과 Codex 훅 신뢰를 오너에게 확인한 뒤 |
 
 ## 폴더
 
@@ -34,6 +37,11 @@ src/context.ts              세션에 보낼 지시문과 「이번 작업」 �
 src/adapters.ts             도구 어댑터: Claude(claude -p), Codex(codex exec)
 src/turn.ts                 작업 세션 노드 한 차례
 src/setup.ts                4dd setup codex (사용자 설정에 Codex 훅)
+src/route.ts                원장만 보고 다음 할 일 정하기
+src/run.ts                  4dd run: 지휘 루프 (작업 선택, 노드 실행, 커밋, 횟수 제한, 사람 대기)
+src/human.ts                4dd human: 승인, 힌트(학습 후보), 분류 바로잡기, 보류
+src/classify.ts             실패 원인 분류 (기계 → 세션이 고름 → 기본 원인)
+src/report.ts               4dd report: 개선 지표와 반복 실수·비효율 질의
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
 test/                       하네스 테스트
@@ -56,6 +64,8 @@ node src/cli.ts gate N24 --task T1 --run NR1 --root <프로젝트 폴더>
 node src/cli.ts context N22 --task T1 --root <프로젝트 폴더>
 node src/cli.ts turn N22 --task T1 --agent claude --root <프로젝트 폴더>   # 실제 에이전트를 돌림 (사용량이 듦)
 node src/cli.ts setup codex                                              # 한 번만. 그다음 codex에서 /hooks로 신뢰
+node src/cli.ts run --agent claude --max-tasks 1 --root <프로젝트 폴더>   # 지휘 루프 (실제 에이전트, 사용량이 듦)
+node src/cli.ts human hint "<힌트>" --root <프로젝트 폴더>                 # 사람을 기다릴 때
 ```
 
 `4dd check`의 종료 코드는 0 통과, 2 막음, 1 잘못된 사용이나 오류입니다. 추적 검사의 주의는 통과로 칩니다. 전체 명령은 `node src/cli.ts`를 인자 없이 돌리면 나옵니다.

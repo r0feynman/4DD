@@ -144,6 +144,7 @@ export function reduce(prev: State, e: LedgerEvent): State {
     case "run_end":
       if (e.reason === "done") s.status = "done";
       else if (e.reason === "wait_human") s.status = "waiting_human";
+      else if (e.reason === "paused") s.status = "idle";
       else s.status = "stopped";
       break;
     case "hook_run":

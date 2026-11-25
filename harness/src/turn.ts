@@ -5,7 +5,9 @@
 import type { Adapter, TurnResult } from "./adapters.ts";
 import type { Config } from "./config.ts";
 import { buildContext } from "./context.ts";
-import { runGate, type GateOutcome } from "./gate.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { GATE_DIR, runGate, type GateOutcome } from "./gate.ts";
 import { checkDiff } from "./guard.ts";
 import { appendEvent, nextId, readEvents } from "./ledger.ts";
 import { ledgerIntact, ledgerSnapshot } from "./lock.ts";
@@ -118,4 +120,124 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
     reverted: diff.violations,
     summary: [head, ...notes].join("\n"),
   };
+}
+
+// ---------------------------------------------------------------- 리뷰 세션 (N27, 승인 L1)
+
+/** 리뷰 세션이 돌려줄 정해진 출력 형식. Codex의 엄격한 형식에도 맞게 모든 필드를 필수로 둔다. */
+export const REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    pass: { type: "boolean" },
+    cause: { type: ["string", "null"], enum: ["code_bug", "arch_wrong", null] },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { file: { type: "string" }, line: { type: ["integer", "null"] }, why: { type: "string" } },
+        required: ["file", "line", "why"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["pass", "cause", "findings"],
+  additionalProperties: false,
+} as const;
+
+export interface ReviewVerdict {
+  pass: boolean;
+  cause: "code_bug" | "arch_wrong" | null;
+  findings: { file: string; line: number | null; why: string }[];
+}
+
+export function parseVerdict(v: unknown): ReviewVerdict | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.pass !== "boolean" || !Array.isArray(o.findings)) return null;
+  const cause = o.cause === "code_bug" || o.cause === "arch_wrong" ? o.cause : null;
+  const findings = o.findings
+    .filter((f): f is Record<string, unknown> => typeof f === "object" && f !== null)
+    .map((f) => ({ file: String(f.file ?? ""), line: typeof f.line === "number" ? f.line : null, why: String(f.why ?? "") }));
+  return { pass: o.pass, cause: o.pass ? null : (cause ?? "code_bug"), findings };
+}
+
+/** N27: 별도 리뷰 세션(읽기 전용, 매번 새 세션)이 변경분과 설계를 대조한다. */
+export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { verdict: ReviewVerdict | null } {
+  const { root, nodes, nodeId, task } = opts;
+  const node = getNode(nodes, nodeId);
+  if (node.actor !== "reviewer") throw new Error(`${nodeId}는 리뷰 세션 노드가 아닙니다 (${node.actor})`);
+  const H = nodes.version;
+  const timeoutMs = opts.timeoutMs ?? nodes.defaults.turn_timeout_min * 60_000;
+  const { events } = readEvents(root);
+  const runId = nextId(events, "NR");
+  appendEvent(root, H, { type: "node_start", id: runId, node: nodeId, task, session: null });
+
+  const ctx = buildContext({ root, nodes, nodeId, task });
+  const snap = ledgerSnapshot(root);
+  const turn = opts.adapter.runTurn({
+    root,
+    prompt: ctx.prompt,
+    sessionId: null,
+    env: { FOURDD_ROOT: root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: runId },
+    timeoutMs,
+    readOnly: true,
+    jsonSchema: REVIEW_SCHEMA,
+  });
+
+  let stop: string | undefined;
+  const intact = ledgerIntact(root, snap);
+  if (!intact.allowed) stop = `원장이 리뷰 세션 동안 바뀌었습니다: ${intact.reason}`;
+  if (!stop && turn.ok && !readEvents(root).events.some((e) => e.type === "hook_run" && e.check === "session" && e.run === runId)) {
+    stop = `훅이 돌지 않았습니다 (${opts.adapter.agent} 리뷰 세션 시작 기록 없음)`;
+  }
+  const diff = checkDiff(root, nodeId, runId, true, nodes);
+  const verdict = turn.ok ? parseVerdict(turn.structured ?? safeJson(turn.text)) : null;
+
+  let cause: Cause | undefined;
+  const notes: string[] = [];
+  if (!turn.ok) {
+    cause = "env";
+    notes.push(`리뷰 세션이 실패했습니다: ${turn.error ?? "알 수 없는 오류"}`);
+  } else if (!verdict) {
+    cause = "env";
+    notes.push("리뷰 결과를 정해진 형식으로 읽지 못했습니다");
+  } else if (!verdict.pass) {
+    cause = verdict.cause ?? "code_bug";
+    notes.push(`설계와 다른 곳 (${cause}):\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
+  }
+  if (diff.violations.length) notes.push(diff.message);
+  const passed = !stop && turn.ok && !!verdict?.pass && diff.violations.length === 0;
+  const summary = [stop ? `${nodeId} 멈춤: ${stop}` : passed ? `${nodeId} 통과 (리뷰 세션)` : `${nodeId} 실패 (리뷰 세션)`, ...notes].join("\n");
+  mkdirSync(join(root, GATE_DIR), { recursive: true });
+  writeFileSync(join(root, GATE_DIR, `${runId}.summary.md`), summary + "\n", "utf8");
+
+  appendEvent(root, H, {
+    type: "node_end",
+    id: runId,
+    node: nodeId,
+    task,
+    result: stop ? "wait" : passed ? "pass" : "fail",
+    ...(cause && !passed ? { cause } : {}),
+    session: turn.sessionId,
+    loaded: ctx.loaded,
+    ...(turn.tokens ? { tokens: turn.tokens } : {}),
+    ...(turn.costUsd !== undefined ? { cost_usd: turn.costUsd } : {}),
+    minutes: turn.minutes,
+    ...(turn.turns !== undefined ? { turns: turn.turns } : {}),
+  });
+  if (!passed && !stop && cause) {
+    appendEvent(root, H, { type: "classify", run: runId, node: nodeId, cause, by: cause === "env" ? "harness" : "agent", needs_human: cause === "env" || cause === "arch_wrong" });
+  }
+  loadState(root);
+  return { runId, passed, ...(cause ? { cause } : {}), ...(stop ? { stop } : {}), turn, reverted: diff.violations, summary, verdict };
+}
+
+function safeJson(text: string): unknown {
+  const m = /\{[\s\S]*\}/.exec(text);
+  if (!m) return undefined;
+  try {
+    return JSON.parse(m[0]);
+  } catch {
+    return undefined;
+  }
 }
