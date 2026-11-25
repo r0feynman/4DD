@@ -1,19 +1,30 @@
 #!/usr/bin/env node
 // 4dd 명령의 입구. 첫 구현 조각 명세의 「4dd 명령」을 단계마다 하나씩 채운다.
-// 지금 있는 것: 4dd check trace, 4dd status
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { loadConfig } from "./config.ts";
+import { checkCommit, checkDiff } from "./guard.ts";
+import { runHook, type Tool } from "./hooks.ts";
+import { initProject } from "./init.ts";
 import { DIR } from "./ledger.ts";
+import { bashViolation, canSessionWrite } from "./lock.ts";
+import { getNode, loadNodes } from "./nodes.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, formatIssues } from "./trace.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
-  check trace [프로젝트 폴더]   specs/ 아래 기능마다 추적 ID(R, @S, T)가 이어져 있는지 검사
-  status [프로젝트 폴더]        지금 작업과 노드, 기다리는 이유
+  init <폴더> [--from <원본>] [--no-install]   시험 프로젝트를 새 git 저장소로 만들고 훅과 기준 해시를 건다
+  status [폴더]                                지금 작업과 노드, 기다리는 이유
+  check trace [폴더]                           추적 ID(R, @S, T)가 이어져 있는지
+  check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
+  check bash <명령>                            셸 명령에 하네스만 할 수 있는 git 명령이 있는지
+  check hook --tool <claude|codex>             훅 입구 (표준 입력의 훅 JSON을 읽음)
+  check commit                                 git pre-commit 입구
+  check diff --node <노드> [--run NR..] [--revert]  마지막 커밋 뒤 이 노드에서 고칠 수 없는 곳이 바뀌었는지
 
-종료 코드: 0 통과 · 2 막음(오류 있음) · 1 잘못된 사용`;
+종료 코드: 0 통과 · 2 막음 · 1 잘못된 사용이나 오류`;
 
 const STATUS_WORD: Record<State["status"], string> = {
   idle: "멈춤 (다음 작업을 기다림)",
@@ -23,26 +34,55 @@ const STATUS_WORD: Record<State["status"], string> = {
   stopped: "중단됨",
 };
 
+/** --이름 값 꼴의 옵션과 나머지 인자를 가른다. */
+function parseArgs(args: string[]): { pos: string[]; opt: Record<string, string | true> } {
+  const pos: string[] = [];
+  const opt: Record<string, string | true> = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith("--")) {
+      const key = a.slice(2);
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        opt[key] = next;
+        i++;
+      } else {
+        opt[key] = true;
+      }
+    } else {
+      pos.push(a);
+    }
+  }
+  return { pos, opt };
+}
+
+const str = (v: string | true | undefined): string | undefined => (typeof v === "string" ? v : undefined);
+
+function out(text: string): void {
+  if (text) process.stdout.write(text.endsWith("\n") ? text : text + "\n");
+}
+function err(text: string): void {
+  if (text) process.stderr.write(text.endsWith("\n") ? text : text + "\n");
+}
+
 function checkTrace(dir: string | undefined): number {
   const root = resolve(dir ?? ".");
   const traces = checkProject(root);
   const report = formatIssues(traces);
   const errors = traces.reduce((n, t) => n + t.issues.filter((i) => i.level === "error").length, 0);
-  const summary = traces
-    .map((t) => `${t.dir}: 요구사항 ${t.requirements.length} · 시나리오 ${t.scenarios.length} · 작업 ${t.tasks.length}`)
-    .join("\n");
+  const summary = traces.map((t) => `${t.dir}: 요구사항 ${t.requirements.length} · 시나리오 ${t.scenarios.length} · 작업 ${t.tasks.length}`).join("\n");
   if (errors > 0) {
-    process.stderr.write(`${report}\n추적 검사 실패: 오류 ${errors}개\n`);
+    err(`${report}\n추적 검사 실패: 오류 ${errors}개`);
     return 2;
   }
-  process.stdout.write(`${summary}\n${report ? report + "\n" : ""}추적 검사 통과\n`);
+  out(`${summary}\n${report ? report + "\n" : ""}추적 검사 통과`);
   return 0;
 }
 
 function status(dir: string | undefined): number {
   const root = resolve(dir ?? ".");
   if (!existsSync(join(root, DIR))) {
-    process.stdout.write(`아직 시작하지 않았습니다 (${DIR} 폴더 없음)\n`);
+    out(`아직 시작하지 않았습니다 (${DIR} 폴더 없음)`);
     return 0;
   }
   const { state: s, rebuilt, warnings } = loadState(root);
@@ -56,15 +96,100 @@ function status(dir: string | undefined): number {
   if (s.waiting) lines.push(`기다리는 이유: ${s.waiting.node}에서 ${s.waiting.reason}`);
   if (rebuilt && s.events > 0) lines.push("state.json을 원장에서 다시 만들었습니다");
   for (const w of warnings) lines.push(`주의: ${w}`);
-  process.stdout.write(lines.join("\n") + "\n");
+  out(lines.join("\n"));
+  return 0;
+}
+
+function check(sub: string | undefined, args: string[]): number {
+  const { pos, opt } = parseArgs(args);
+  switch (sub) {
+    case "trace":
+      return checkTrace(pos[0]);
+    case "path": {
+      const nodeId = str(opt.node);
+      if (!pos[0] || !nodeId) break;
+      const root = resolve(str(opt.root) ?? ".");
+      const d = canSessionWrite(root, getNode(loadNodes(), nodeId), pos[0]);
+      if (d.allowed) {
+        out("허용");
+        return 0;
+      }
+      err(`[4DD] ${d.reason}`);
+      return 2;
+    }
+    case "bash": {
+      if (!pos.length) break;
+      const why = bashViolation(pos.join(" "));
+      if (!why) {
+        out("허용");
+        return 0;
+      }
+      err(`[4DD] ${why}`);
+      return 2;
+    }
+    case "hook": {
+      const tool = str(opt.tool);
+      if (tool !== "claude" && tool !== "codex") break;
+      const input = readFileSync(0, "utf8");
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(input || "{}") as Record<string, unknown>;
+      } catch {
+        err("[4DD] 훅 입력이 JSON이 아닙니다");
+        return 1;
+      }
+      const r = runHook(tool as Tool, payload, process.env);
+      err(r.message);
+      return r.exitCode;
+    }
+    case "commit": {
+      const r = checkCommit(resolve("."), process.env);
+      err(r.message);
+      return r.exitCode;
+    }
+    case "diff": {
+      const nodeId = str(opt.node);
+      if (!nodeId) break;
+      const root = resolve(str(opt.root) ?? ".");
+      const r = checkDiff(root, nodeId, str(opt.run) ?? null, opt.revert === true);
+      if (r.exitCode === 0) out("고칠 수 없는 곳의 변경 없음");
+      err(r.message);
+      return r.exitCode;
+    }
+  }
+  err(USAGE);
+  return 1;
+}
+
+function init(args: string[]): number {
+  const { pos, opt } = parseArgs(args);
+  if (!pos[0]) {
+    err(USAGE);
+    return 1;
+  }
+  const r = initProject(pos[0], { from: str(opt.from), install: opt["no-install"] !== true });
+  const config = loadConfig(r.root);
+  out(
+    [
+      `만들었습니다: ${r.root} (첫 커밋 ${r.commit})`,
+      `작업 유형 ${config.work_type} · 도구 ${config.agent} · 잠긴 파일 ${r.locked}개의 기준 해시를 고정했습니다`,
+      "Codex로 돌릴 때는 이 폴더에서 codex를 한 번 열고 /hooks에서 4DD 훅을 신뢰해 주세요",
+    ].join("\n"),
+  );
   return 0;
 }
 
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
-  if (cmd === "check" && rest[0] === "trace") return checkTrace(rest[1]);
-  if (cmd === "status") return status(rest[0]);
-  process.stderr.write(`${USAGE}\n`);
+  try {
+    if (cmd === "init") return init(rest);
+    if (cmd === "status") return status(rest[0]);
+    if (cmd === "check") return check(rest[0], rest.slice(1));
+  } catch (e) {
+    err(`[4DD] ${(e as Error).message}`);
+    return 1;
+  }
+  err(USAGE);
   return 1;
 }
 

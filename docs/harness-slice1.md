@@ -1,6 +1,6 @@
 # 하네스 첫 구현 조각 명세
 
-> **상태 (2026-11-25):** 오너가 실행 방식, 구현 언어, 시험 대상, 코드 위치를 정했고, 이 명세를 바탕으로 구현을 시작했습니다. 구현 1단계(시험 프로젝트와 추적 ID 검사)와 2단계(노드 정의, 원장, `state.json`)를 마쳤고, 진행은 [harness/README.md](../harness/README.md)에 적습니다. 설계의 근거는 [harness-design.md](harness-design.md)에 있고, 이 문서는 그 설계를 코드로 옮기는 방법만 적습니다.
+> **상태 (2026-11-25):** 오너가 실행 방식, 구현 언어, 시험 대상, 코드 위치를 정했고, 이 명세를 바탕으로 구현을 시작했습니다. 구현 1단계(시험 프로젝트와 추적 ID 검사), 2단계(노드 정의, 원장, `state.json`), 3단계(`4dd check`와 훅, `4dd init`)를 마쳤고, 진행은 [harness/README.md](../harness/README.md)에 적습니다. 설계의 근거는 [harness-design.md](harness-design.md)에 있고, 이 문서는 그 설계를 코드로 옮기는 방법만 적습니다.
 
 **구현 조각**은 하네스 전체를 한 번에 만들지 않고, 처음부터 끝까지 실제로 도는 작은 범위로 잘라 만든 것입니다. 첫 조각은 **백엔드 기능 하나가 Stage 2(N21~N29)를 사람 손 없이 도는 것**입니다. Figma와 에뮬레이터는 가장 불확실한 부분이라 빼고, 핵심 루프(상태, 관문, 횟수 제한, 원장)부터 싸게 검증합니다. 하네스 설계에서 정한 첫 구현 범위(MVP, 원장 기록과 지표 보고)도 이 조각에 들어갑니다. 그 기록을 만들어 낼 최소한의 루프를 함께 만드는 셈입니다.
 
@@ -170,7 +170,7 @@ locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".
 | `4dd report` | 사람 | 원장으로 지표와 질의 결과를 `.4dd/report.md`에 씀 | 0 |
 | `4dd context <노드> --task <작업>` | 지휘 프로그램 | 세션에 보낼 지시문과 「이번 작업」 출력, `loaded` 기록 | 0 |
 | `4dd gate <노드> --task <작업>` | 지휘 프로그램 | 관문 실행, 관문 실행 기록 남김 | 0 통과 · 1 실패 |
-| `4dd check <trace\|path\|bash\|session\|commit>` | 훅, git 훅, 지휘 프로그램 | 추적 ID 검사와 잠금 검사, 훅 실행 기록 남김 | 0 허용 · 2 막음 (이유는 stderr) |
+| `4dd check <trace\|hook\|path\|bash\|commit\|diff>` | 훅, git 훅, 지휘 프로그램 | 추적 ID 검사와 잠금 검사, 훅 실행 기록 남김. `hook`은 두 도구의 훅 입구, `commit`은 git pre-commit 입구, `diff`는 차례 뒤 변경 검사 | 0 허용 · 2 막음 (이유는 stderr) |
 
 종료 코드 2로 막는 방식은 Claude 훅과 Codex 훅이 둘 다 지원합니다. 그래서 같은 `4dd check`를 두 도구에 그대로 겁니다.
 
@@ -181,12 +181,12 @@ locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".
 | 첫 차례 | `claude -p --output-format json --session-id <uuid>` | `codex exec --json -C <폴더> -s workspace-write` |
 | 이어 쓰기 | `claude -p --resume <uuid>` | `codex exec resume <id>` |
 | 리뷰 세션 | `--allowedTools Read Grep Glob`, `--json-schema` | `-s read-only`, `--output-schema` |
-| 훅 넣기 | `--settings harness/hooks/claude.json` (PreToolUse, SessionStart) | 프로젝트 `.codex/hooks.json` (PreToolUse, SessionStart) |
+| 훅 넣기 | `--settings .4dd/hooks/claude.json` (`4dd init`이 만듦, PreToolUse·SessionStart) | 프로젝트 `.codex/hooks.json` (`4dd init`이 만듦, PreToolUse·SessionStart) |
 | 토큰과 시간 | 결과 JSON의 사용량과 걸린 시간 | `--json` 이벤트의 사용량 |
-| 막는 명령 | `--disallowedTools "Bash(git commit:*)" "Bash(git push:*)"` | `4dd check bash` 훅으로 같은 명령을 막음 |
+| 막는 명령 | `--disallowedTools "Bash(git commit:*)" "Bash(git push:*)"`, 그리고 셸 명령 훅 | 셸 명령 훅 |
 
 - **파일 경로 읽기:** Claude의 편집 도구는 `tool_input.file_path`, Codex의 `apply_patch`는 `tool_input.command` 안의 패치 머리(`*** Update File: …`)에서 경로를 읽습니다.
-- **Codex 훅 신뢰:** Codex는 신뢰하지 않은 훅을 건너뜁니다. `4dd init`이 사람에게 `/hooks`에서 한 번 신뢰하라고 안내하고, 세션 시작 훅(`4dd check session`)이 원장에 한 줄을 남기게 합니다. 첫 차례 뒤 그 줄이 없으면 훅이 꺼진 것이므로 `env`로 멈춥니다. 신뢰 확인을 건너뛰는 옵션은 쓰지 않습니다.
+- **Codex 훅 신뢰:** Codex는 신뢰하지 않은 훅을 건너뜁니다. `4dd init`이 사람에게 `/hooks`에서 한 번 신뢰하라고 안내하고, 세션 시작 훅이 원장에 한 줄(`check: session`)을 남기게 합니다. 첫 차례 뒤 그 줄이 없으면 훅이 꺼진 것이므로 `env`로 멈춥니다. 신뢰 확인을 건너뛰는 옵션은 쓰지 않습니다.
 - **차례 시간 제한:** 한 차례가 `turn_timeout_min`(15분)을 넘으면 끊고 `env`로 기록합니다.
 
 ## 잠금을 지키는 겹
@@ -195,9 +195,10 @@ locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".
 훅 (고치기 직전) ─▶ 차례 뒤 변경 검사 ─▶ git pre-commit ─▶ N28 DoD ─▶ CI
 ```
 
-- **훅:** 가장 빨리 막아 차례를 아낍니다. 다만 셸 명령으로 파일을 쓰면 놓칠 수 있습니다.
-- **차례 뒤 변경 검사:** 노드가 고칠 수 없는 곳이 바뀌었으면 되돌리는 결정적인 겹입니다. 차례가 끝나면 지휘 프로그램이 `git status`로 바뀐 파일을 보고, 노드의 `writes` 밖이 바뀌었으면 되돌리고 훅 실행 기록(`check: diff_lock`, `blocked`)을 남긴 뒤 그 노드를 다시 시킵니다. 횟수 제한에 셉니다. 차례를 시작할 때 작업 트리가 깨끗해야 하므로, 지휘 프로그램이 통과한 노드마다 커밋합니다.
-- **git pre-commit:** 커밋할 때 같은 잠금 검사를 다시 합니다. 사람이나 다른 경로로 들어온 변경도 막습니다.
+- **훅:** 가장 빨리 막아 차례를 아낍니다. 지휘 프로그램이 세션을 띄울 때 환경 변수(`FOURDD_ROOT`, `FOURDD_NODE`, `FOURDD_NODE_RUN`)로 지금 노드를 알려 주고, 훅은 그 노드의 `writes` 밖 편집과 기록·브랜치를 바꾸는 git 명령(`commit`, `push`, `reset`, `checkout`, `stash` 등)을 막습니다. 이 값이 없으면 하네스가 띄운 세션이 아니므로 아무것도 하지 않습니다. 셸 명령으로 파일을 쓰면 놓칠 수 있습니다.
+- **차례 뒤 변경 검사:** 노드가 고칠 수 없는 곳이 바뀌었으면 되돌리는 결정적인 겹입니다. 차례가 끝나면 지휘 프로그램이 `git status`로 바뀐 파일을 보고, 노드의 `writes` 밖이 바뀌었으면 되돌리고 훅 실행 기록(`check: diff_lock`, `blocked`)을 남긴 뒤 그 노드를 다시 시킵니다. 횟수 제한에 셉니다. 차례를 시작할 때 작업 트리가 깨끗해야 하므로, 지휘 프로그램이 통과한 노드마다 커밋합니다. `.4dd/`에서 바뀌어도 되는 것은 원장과 `state.json`뿐이라, 셸로 훅 설정이나 기준 해시를 고쳐도 여기서 걸립니다.
+- **원장 지키기:** 차례 전후로 원장을 비교해, 덧붙기만 했고 덧붙은 줄이 훅 실행 기록뿐인지 봅니다. 에이전트가 원장을 고쳤으면 멈춥니다.
+- **git pre-commit:** 커밋할 때 같은 잠금 검사를 다시 합니다. 하네스의 커밋(`FOURDD_NODE`가 있음)은 그 노드의 `writes`와 원장만 올릴 수 있습니다. 사람의 커밋은 잠긴 파일을 막고, 사람 승인을 기다리는 중이거나 `FOURDD_ALLOW_LOCKED=1`을 붙였을 때만 허용합니다. 그렇게 커밋해도 기준 해시와 다르므로, 승인 없이 바뀐 기준은 다음 노드를 시작할 때 걸립니다.
 - **N28 DoD:** 테스트를 지우거나 건너뛰게 만들어 통과하는 것을 막습니다.
 - **CI:** 건너뛸 수 없는 마지막 겹입니다. git 훅을 건너뛴 변경도 여기서 걸립니다.
 
@@ -251,7 +252,7 @@ locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".
 |---|---|---|
 | 1 | 시험 프로젝트 원본 (추적 ID 포함) | 시험 프로젝트에서 `npm test`가 돌고(테스트 0개), ID 검사가 통과 |
 | 2 | 뼈대: `nodes.yaml` 읽기와 형식 검사, 원장 쓰기·읽기, `state.json` 다시 만들기 | 하네스 단위 테스트 |
-| 3 | `4dd check`와 훅 (Claude, Codex, git) | 두 도구에서 `.feature`를 고치려 하면 막히고 훅 실행 기록이 남음 |
+| 3 | `4dd check`와 훅 (Claude, Codex, git), `4dd init` | 두 도구의 훅 입력으로 `.feature`를 고치려 하면 막히고 훅 실행 기록이 남음 (실제 도구로는 5단계에서 확인) |
 | 4 | 관문: 실패 확인(N22, N23), N24~N26, N28 부정 방지 검사 | 미리 만든 통과·실패 코드로 관문 테스트 |
 | 5 | 어댑터: Claude 먼저, 그다음 Codex | 도구마다 N22 한 차례를 돌리고 토큰과 시간이 원장에 남음 |
 | 6 | 지휘 루프: 다음 노드, 횟수 제한, 차례 뒤 변경 검사, 커밋, 사람 대기와 재개 | Claude로 T1이 N21부터 N29까지 사람 손 없이 끝남 |

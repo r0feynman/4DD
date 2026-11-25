@@ -8,7 +8,8 @@
 |---|---|---|
 | 1 | 시험 프로젝트 원본과 추적 ID 검사 | 끝 |
 | 2 | 뼈대: `nodes.yaml`, 원장, `state.json` | 끝 |
-| 3 | `4dd check`와 훅 (Claude, Codex, git) | 다음 |
+| 3 | `4dd check`와 훅 (Claude, Codex, git), `4dd init` | 끝 |
+| 4 | 관문 (N22~N26, N28) | 다음 |
 
 ## 폴더
 
@@ -19,6 +20,12 @@ src/nodes.ts                노드 정의 읽기와 형식 검사, 다음 노드
 src/config.ts               프로젝트 설정(4dd.config.yaml) 읽기
 src/ledger.ts               원장(.4dd/events.jsonl) 쓰기·읽기
 src/state.ts                원장에서 state.json 만들기
+src/glob.ts                 경로 패턴 (writes, locked)
+src/lock.ts                 쓰기 잠금 규칙, 기준 해시, 차례 뒤 변경 검사, 원장 지키기
+src/hooks.ts                Claude·Codex 훅 입구
+src/guard.ts                git pre-commit과 차례 뒤 변경 검사 (원장 기록 포함)
+src/git.ts                  git 부르기
+src/init.ts                 4dd init
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
 test/                       하네스 테스트
@@ -35,6 +42,8 @@ npm test
 npm run typecheck
 node src/cli.ts check trace fixtures/login-backend
 node src/cli.ts status <프로젝트 폴더>
+node src/cli.ts init <새 폴더>          # 시험 프로젝트를 새 git 저장소로
+node src/cli.ts check path specs/login/spec.md --node N22 --root <프로젝트 폴더>
 ```
 
-`4dd check trace`의 종료 코드는 0 통과, 2 막음(오류 있음), 1 잘못된 사용입니다. 주의는 통과로 칩니다.
+`4dd check`의 종료 코드는 0 통과, 2 막음, 1 잘못된 사용이나 오류입니다. 추적 검사의 주의는 통과로 칩니다. 전체 명령은 `node src/cli.ts`를 인자 없이 돌리면 나옵니다.
