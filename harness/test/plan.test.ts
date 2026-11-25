@@ -10,6 +10,7 @@ import { appendEvent, readEvents, type LedgerEvent } from "../src/ledger.ts";
 import { loadNodes, parseNodes, NodesError, resolveWrites, sessionScope } from "../src/nodes.ts";
 import { combinedHash, hashFiles, openQuestions, readSprint, reviewFilesFor } from "../src/plan.ts";
 import { decideNext } from "../src/route.ts";
+import { unapprovedDrift } from "../src/run.ts";
 import { rebuildState } from "../src/state.ts";
 
 const nodes = loadNodes();
@@ -160,6 +161,16 @@ describe("Stage 0·1 관문 검사", () => {
     expect(failed("N02", "T4")).toContain("더함 R6");
     put(`specs/${F}/spec.md`, SPEC);
     expect(gate("N02", "T4").passed).toBe(true);
+  });
+});
+
+describe("재사용 전 검증 (조각 2 실제 실행에서 찾은 빈틈)", () => {
+  it("다시 돌 노드가 고칠 수 있는 잠긴 파일의 커밋 전 변경은 승인 없이 바뀐 기준으로 보지 않는다", () => {
+    put(`specs/${F}/tasks.md`, TASKS);
+    const tasks = `specs/${F}/tasks.md`;
+    expect(unapprovedDrift(root, config, nodes, "N14", F)).not.toContain(tasks);
+    expect(unapprovedDrift(root, config, nodes, "N15", F)).toContain(tasks);
+    expect(unapprovedDrift(root, config, nodes, null, F)).toContain(tasks);
   });
 });
 

@@ -13,7 +13,8 @@ import { GATE_DIR, runGate, taskScenarios } from "./gate.ts";
 import { git } from "./git.ts";
 import { appendEvent, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
 import { baselineDiff, computeBaseline, writeBaseline } from "./lock.ts";
-import { budgetFor, getNode, loadNodes, type Cause, type NodeSet } from "./nodes.ts";
+import { budgetFor, getNode, loadNodes, resolveWrites, type Cause, type NodeSet } from "./nodes.ts";
+import { matchesAny } from "./glob.ts";
 import { featureOfTask, readSprint } from "./plan.ts";
 import { decideNext } from "./route.ts";
 import { loadState, type State } from "./state.ts";
@@ -171,6 +172,16 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
 
 const lastNodeEnd = (events: LedgerEvent[]) => events.filter((e) => e.type === "node_end").at(-1);
 
+/**
+ * 승인 없이 바뀐 잠긴 파일. 이제 돌 노드가 고칠 수 있는 파일은 뺀다: Stage 0·1의 작업 노드는 잠긴 specs/를 고치므로,
+ * 그 노드가 실패해 다시 할 때 지난 차례가 남긴 변경(커밋 전)은 승인 없이 바뀐 기준이 아니라 하던 일이다 (조각 2 실제 실행에서 발견).
+ */
+export function unapprovedDrift(root: string, config: Config, nodes: NodeSet, nodeId: string | null, feature: string | null): string[] {
+  const d = baselineDiff(root, config);
+  const writes = nodeId ? resolveWrites(getNode(nodes, nodeId), feature) : [];
+  return [...d.changed, ...d.added, ...d.removed].filter((f) => !matchesAny(f, writes));
+}
+
 /** 던지는 대신 Error를 돌려준다 (루프가 멈출 이유로 쓴다) */
 function attempt<T>(fn: () => T): T | Error {
   try {
@@ -228,8 +239,7 @@ export function runLoop(opts: RunOptions): RunOutcome {
     }
 
     // 재사용 전 검증: 노드나 작업 선택을 시작할 때마다 잠긴 파일이 기준 해시와 같은지 본다. 다르면 기준이 승인 없이 바뀐 것이다.
-    const d = baselineDiff(root, config);
-    const drift = [...d.changed, ...d.added, ...d.removed];
+    const drift = unapprovedDrift(root, config, nodes, step.kind === "node" ? step.node : null, feature);
     if (drift.length) return finish("stopped", `잠긴 파일이 기준 해시와 다릅니다: ${drift.join(", ")}. 되돌리거나, 맞으면 4dd human approve로 기준을 새로 고정합니다`);
 
     if (step.kind === "pick") {
