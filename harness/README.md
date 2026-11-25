@@ -21,8 +21,8 @@
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 1 | 프로젝트 전체 ID(`4dd ids`, 겹침 검사, `--stage 0`)와 시험 프로젝트 `login-reset` | 끝 |
-| 2 | `nodes.yaml` 넓히기: N01~N15, 사람 노드, 스테이지 세션, 리뷰 관문, 승인과 패킷 | |
-| 3 | 원장과 상태: `review`, `packet`, 넓힌 `human` | |
+| 2 | `nodes.yaml` 넓히기: N01~N15, 사람 노드, 스테이지 세션, 리뷰 관문, 승인과 패킷 | 끝 (Stage 0·1 관문 검사, 지시문 포함) |
+| 3 | 원장과 상태: `review`, `packet`, 넓힌 `human` | 끝 (다음 할 일 정하기의 Stage 0·1 경로 포함) |
 | 4 | 사람 명령: `4dd story`, `4dd review`, `4dd human approve·reject --review` | |
 | 5 | 노드 지시문과 `4dd context`의 새 읽을거리 | |
 | 6 | 지휘 루프: Stage 0 → 1 → 2 | |
@@ -58,6 +58,7 @@ src/run.ts                  4dd run: 지휘 루프 (작업 선택, 노드 실행
 src/human.ts                4dd human: 승인, 힌트(학습 후보), 분류 바로잡기, 보류
 src/classify.ts             실패 원인 분류 (기계 → 세션이 고름 → 기본 원인)
 src/report.ts               4dd report: 개선 지표와 반복 실수·비효율 질의
+src/plan.ts                 Stage 0·1의 산출물 읽기: 칸, 물을 것, 스프린트, 검토·패킷 해시 (조각 2)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
 test/                       하네스 테스트

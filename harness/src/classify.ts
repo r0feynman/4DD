@@ -54,10 +54,11 @@ export interface ClassifyResult {
   turn?: TurnResult;
 }
 
-/** 사람에게 가는 원인인가 (그 노드의 on_fail에서 goto가 human) */
+/** 사람에게 가는 원인인가 (그 노드의 on_fail에서 goto가 human이거나, 앞 스테이지로 돌아가 사람이 먼저 승인해야 하는 경로) */
 export function needsHuman(nodes: NodeSet, nodeId: string, cause: Cause): boolean {
   if (cause === "env" || cause === "budget_exceeded") return true;
-  return failRoute(nodes, nodeId, cause)?.goto === "human";
+  const r = failRoute(nodes, nodeId, cause);
+  return r?.goto === "human" || r?.confirm === true;
 }
 
 export interface ClassifyOptions {

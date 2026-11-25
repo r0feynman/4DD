@@ -58,9 +58,15 @@ describe("다음 할 일 정하기", () => {
     expect(next(ev)).toEqual({ kind: "human", node: "N26", reason: "spec_ambiguous" });
   });
 
-  it("사람 승인 뒤: 스펙 원인은 원래 작업의 N22로, 횟수 초과는 다시 시도", () => {
+  it("사람 승인 뒤: 스펙 원인은 스펙(N02)부터 고치고 N04 승인 뒤 원래 작업의 N22로, 횟수 초과는 다시 시도", () => {
     const spec = [...picked(), end({ node: "N26", result: "fail", cause: "spec_ambiguous" }), classify("N26", "spec_ambiguous", true)];
-    expect(next([...spec, human("approve", { reason: "spec_ambiguous" })])).toEqual({ kind: "node", node: "N22" });
+    const ok = [...spec, human("approve", { reason: "spec_ambiguous" })];
+    expect(next(ok)).toEqual({ kind: "node", node: "N02" });
+    expect(next([...ok, end({ node: "N02", result: "pass" })])).toEqual({ kind: "node", node: "N03" });
+    expect(next([...ok, end({ node: "N02", result: "pass" }), end({ node: "N03", result: "pass" })])).toEqual({ kind: "node", node: "N04" });
+    const atN04 = [...ok, end({ node: "N02", result: "pass" }), end({ node: "N03", result: "pass" }), end({ node: "N04", result: "wait" })];
+    expect(next(atN04)).toEqual({ kind: "human", node: "N04", reason: "review" });
+    expect(next([...atN04, human("approve", { node: "N04", review: "RV1" })])).toEqual({ kind: "node", node: "N22" });
     const budget = [...picked(), end({ node: "N26", result: "fail", cause: "code_bug" }), classify("N26", "budget_exceeded", true)];
     expect(next([...budget, human("approve", { reason: "budget_exceeded" })])).toEqual({ kind: "node", node: "N23" });
   });

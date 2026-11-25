@@ -1,20 +1,141 @@
-# 4DD 노드 정의의 원본 (하네스 설계 ①, 첫 구현 조각 명세 「노드마다 누가 무엇을」)
+# 4DD 노드 정의의 원본 (하네스 설계 ①, 조각 명세 「노드마다 누가 무엇을」)
 #
-# 첫 구현 조각은 Stage 2(N21~N29)만 둔다. N26F(화면 비교)는 조각 3에서 더한다.
+# 조각 1은 Stage 2(N21~N29), 조각 2는 Stage 0·1(N01~N04, N11~N15)을 둔다.
+# Figma 노드(N00F, N03W, N03F, N26F)는 조각 3에서, N00은 조각 4에서 더한다.
 # 노드 순서는 이 파일에 적힌 순서이고, next로 바꿀 수 있다.
 #
-# actor:   harness(지휘 프로그램이 직접) | worker(작업 세션) | reviewer(별도 리뷰 세션)
-# gate:    노드가 끝났는지 기계가 보는 조건. expect: pass면 명령이 성공해야, fail이면 실패해야 통과.
-#          작업 노드에서 조건을 못 채우면 같은 노드를 다시 시킨다.
-# on_fail: 판단 노드가 실패했을 때 실패 원인(통제 어휘)별로 갈 곳. human은 사람을 기다린다.
-#          then은 고친 뒤 이어서 갈 곳이다.
+# actor:    harness(지휘 프로그램이 직접) | worker(작업 세션) | reviewer(별도 리뷰 세션) | human(사람, PO 창구가 옮김)
+# session:  작업 세션을 나누는 단위. 없으면 Stage 2는 작업마다(task), 그 앞은 기능의 스테이지마다(stage)
+# gate:     노드가 끝났는지 기계가 보는 조건. expect: pass면 명령이 성공해야, fail이면 실패해야 통과.
+#           checks는 명령 없이 하는 검사, review는 기계 검사 뒤 리뷰 세션(L1)의 판정.
+#           작업 노드에서 조건을 못 채우면 같은 노드를 다시 시킨다.
+# review·approve: 노드가 끝나면 검토 페이지를 만들어 사람 승인을 기다린다. 승인되면 스테이지 패킷을 남긴다.
+# on_fail:  판단 노드가 실패했을 때 실패 원인(통제 어휘)별로 갈 곳. human은 사람을 기다린다.
+#           then은 고친 뒤 이어서 갈 곳이다. 앞 스테이지로 돌아가면 다음 승인 뒤 then으로 돌아온다(confirm: 사람이 먼저 승인).
+# on_reject: 작업 노드의 사람 승인이 되돌려졌을 때 사람이 고를 수 있는 노드.
+# otherwise: 원인 단어 없이 실패했을 때 갈 곳 (N12 → N01).
 
-version: 0.1.0
+version: 0.2.0
 defaults:
   budget: 3            # 판단 노드별 연속 실패 한도
-  task_budget: 10      # 작업 하나의 되돌림 총합 한도
+  task_budget: 10      # 작업 하나(Stage 0·1에서는 기능 하나)의 되돌림 총합 한도
   flaky_retries: 1     # test_flaky 자동 재실행 (횟수에 안 셈)
   turn_timeout_min: 15 # 세션 한 차례의 시간 제한
+
+# ---------------------------------------------------------------- Stage 0 백로그 정리
+
+N01:
+  name: 사용자 스토리 작성
+  stage: 0
+  method: scrum
+  kind: work
+  actor: human                    # PO가 채팅으로 말하고, 창구가 4dd story로 넘김
+  writes: ["specs/{feature}/story.md"]
+
+N02:
+  name: 요구사항 스펙 작성
+  stage: 0
+  method: sdd
+  kind: work
+  actor: worker
+  instruction: instructions/N02.md
+  reads: [story, spec, other_specs, ids, last_gate, hint]
+  writes: ["specs/{feature}/spec.md"]
+  gate:
+    checks: [spec_sections, requirements_kept]   # requirements_kept: Stage 2에서 돌아왔을 때 요구사항을 더하거나 빼지 않음
+
+N03:
+  name: 시나리오 작성
+  stage: 0
+  method: bdd
+  kind: work
+  actor: worker
+  instruction: instructions/N03.md
+  reads: [story, spec, scenarios, ids, last_gate, hint]
+  writes: ["specs/{feature}/*.feature"]
+  gate:
+    checks: [trace_scenarios]
+
+N04:
+  name: 스펙과 시나리오 리뷰 및 승인
+  stage: 0
+  method: sdd
+  kind: decision
+  actor: human
+  review: [story, spec, scenarios]
+  approve: {packet: "0-1", requires: [no_open_questions]}
+  on_fail:
+    - when: [spec_ambiguous, spec_missing_state]
+      goto: N02                   # 그다음은 파일 순서대로 N03 → N04 (PO의 말이 두 차례의 힌트)
+
+# ---------------------------------------------------------------- Stage 1 스프린트 플래닝
+
+N11:
+  name: 스프린트 목표 설정
+  stage: 1
+  method: scrum
+  kind: work
+  actor: worker
+  instruction: instructions/N11.md
+  reads: [story, spec, sprint, last_gate, hint]
+  writes: ["specs/sprint.md"]
+  gate:
+    checks: [sprint_goal]
+
+N12:
+  name: 스펙과 시나리오가 준비됐나?
+  stage: 1
+  method: scrum
+  kind: decision
+  actor: harness
+  gate:
+    checks: [trace_scenarios, packet_unchanged]  # 추적 검사(L0)와, 승인된 패킷 0 → 1 그대로인지
+  otherwise:
+    goto: human                   # 준비 안 된 스토리는 사람이 정함 (원인 단어 없음)
+    then: N01
+
+N13:
+  name: 설계 스펙 작성
+  stage: 1
+  method: sdd
+  kind: work
+  actor: worker
+  instruction: instructions/N13.md
+  reads: [spec, scenarios, design, other_designs, src_map, last_gate, hint]
+  writes: ["specs/{feature}/design.md"]
+  gate:
+    checks: [design_sections]
+    review: instructions/N13.review.md   # 리뷰 세션(L1): 모든 R·S를 다루고 스펙·기존 코드와 부딪치지 않는지
+
+N14:
+  name: 작업 분해
+  stage: 1
+  method: sdd
+  kind: work
+  actor: worker
+  instruction: instructions/N14.md
+  reads: [spec, scenarios, design, tasks, ids, last_gate, hint]
+  writes: ["specs/{feature}/tasks.md"]
+  gate:
+    checks: [trace_full]
+    review: instructions/N14.review.md   # 리뷰 세션(L1): 작업이 설계를 다 덮고 서로 겹치지 않는지
+
+N15:
+  name: 스프린트 백로그 확정
+  stage: 1
+  method: scrum
+  kind: work
+  actor: worker
+  instruction: instructions/N15.md
+  reads: [sprint, tasks, hint]
+  writes: ["specs/sprint.md"]
+  gate:
+    checks: [backlog_ids]
+  review: [sprint, design, tasks, review_results]   # N11 목표도 이 페이지에서 함께 승인 (승인 두 번)
+  approve: {packet: "1-2"}
+  on_reject: [N11, N13, N14, N15]
+
+# ---------------------------------------------------------------- Stage 2 개발
 
 N21:
   name: 작업 하나 선택
@@ -97,7 +218,11 @@ N26:
     - when: test_flaky
       goto: N22
       then: N26
-    - when: [spec_ambiguous, spec_missing_state, env]
+    - when: [spec_ambiguous, spec_missing_state]
+      goto: N02                   # 사람이 승인하면 스펙부터 고치고 N04 승인 뒤 원래 작업의 N22로
+      then: N22
+      confirm: true
+    - when: env
       goto: human
       then: N22
 
@@ -113,8 +238,9 @@ N27:
     - when: code_bug
       goto: N23
     - when: arch_wrong
-      goto: human
+      goto: N13                   # 사람이 승인하면 설계부터 고치고 N14 → N15 승인 뒤 다음 작업 고르기로
       then: N21
+      confirm: true
 
 N28:
   name: DoD 충족?
