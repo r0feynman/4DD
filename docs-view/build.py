@@ -1004,7 +1004,7 @@ def split_top(text, sep=", "):
     return out
 
 
-SLICE_STATUS = {"끝": "st-done", "명세": "st-spec", "계획": "st-plan"}
+SLICE_STATUS = {"끝": "st-done", "구현": "st-spec", "명세": "st-spec", "계획": "st-plan"}
 
 
 def load_slices():
@@ -1223,6 +1223,13 @@ def page_slice2(ctx):
     n_done, done_html = slice_done(ctx, sd)
     nexts = slice_nexts(ctx, 2)
     cmds_n = len(cmds_h) + len(cmds_m)
+    verify = ""
+    if "## 구현하며 확인할 것" in sd:
+        verify = "".join(
+            f'<div class="card top {"c-plain un" if "(남음)" in k else "c-plain"}"><span class="k">{"남음" if "(남음)" in k else "확인함" if "(확인함)" in k else "찾아 고친 것" if "찾아 고친" in k else "관찰"}</span>'
+            f'<span class="t">{inline(re.sub(r" [(](확인함|남음)[)]$", "", k))}</span><span class="d">{chipify(ctx, v)}</span></div>'
+            for k, v in bold_bullets(section(sd, "## 구현하며 확인할 것"))
+        )
 
     body = f"""
 <header>
@@ -1317,6 +1324,7 @@ def page_slice2(ctx):
   <h2>완료 기준</h2>
   <ul class="chk">{done_html}</ul>
 </section>
+{f'<section><h2>구현하며 확인할 것</h2><div class="cards onto-cards">{verify}</div></section>' if verify else ""}
 <section>
   <h2>다음 조각</h2>
   <div class="lsteps">{nexts}</div>
@@ -1395,7 +1403,7 @@ def page_slices(ctx):
   <div class="stats">
     <div class="stat"><b>{n}</b><span>조각</span></div>
     <div class="stat"><b>{count["끝"]}</b><span>끝</span></div>
-    <div class="stat"><b>{count["명세"]}</b><span>명세 씀</span></div>
+    <div class="stat"><b>{count["구현"] + count["명세"]}</b><span>진행 중</span></div>
     <div class="stat"><b>{count["계획"]}</b><span>계획</span></div>
     <div class="stat"><b>{len(sl["gaps"])}</b><span>채울 빈 곳 (G)</span></div>
   </div>
