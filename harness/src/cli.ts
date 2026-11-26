@@ -33,7 +33,7 @@ const USAGE = `사용법: 4dd <명령>
   report [--root 폴더]                         원장만으로 개선 지표와 반복 실수·비효율 질의 결과 (.4dd/report.md)
   init <폴더> [--from <원본>] [--no-install]   시험 프로젝트를 새 git 저장소로 만들고 훅과 기준 해시를 건다
   setup codex [--codex-home 폴더]               Codex 사용자 설정(~/.codex/hooks.json)에 4DD 훅을 한 번 넣는다
-  status [폴더]                                지금 작업과 노드, 기다리는 이유
+  status [폴더] [--root 폴더]                  지금 작업과 노드, 기다리는 이유
   check trace [폴더] [--stage 0]               추적 ID(R, @S, T)가 이어져 있고 프로젝트 전체에서 겹치지 않는지 (--stage 0은 요구사항과 시나리오만)
   ids [폴더] [--json]                          프로젝트에서 다음에 쓸 R, S, T 번호
   check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
@@ -348,7 +348,11 @@ function main(argv: string[]): number {
       out(`${r.changed ? "4DD 훅을 넣었습니다" : "4DD 훅이 이미 있습니다"}: ${r.file}\n이제 codex를 열고 /hooks에서 4DD 훅을 신뢰해 주세요. 하네스가 띄운 세션에서만 동작하고 다른 Codex 세션에서는 아무것도 하지 않습니다`);
       return 0;
     }
-    if (cmd === "status") return status(rest[0]);
+    if (cmd === "status") {
+      // PO 창구 스킬은 모든 명령에 --root를 붙인다. 폴더를 위치 인자로 줘도 된다
+      const { pos, opt } = parseArgs(rest);
+      return status(str(opt.root) ?? pos[0]);
+    }
     if (cmd === "ids") {
       const { pos, opt } = parseArgs(rest);
       const n = nextIds(resolve(str(opt.root) ?? pos[0] ?? "."));

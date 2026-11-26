@@ -60,6 +60,16 @@ describe("4dd init", () => {
   });
 });
 
+describe("4dd status", () => {
+  it("폴더를 --root로 줘도, 위치 인자로 줘도 같은 프로젝트를 본다", () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), "4dd-status-"));
+    const byRoot = cli(["status", "--root", root], { cwd: elsewhere });
+    const byPos = cli(["status", root], { cwd: elsewhere });
+    expect(byRoot.stdout).not.toContain("폴더 없음");
+    expect(byRoot.stdout).toBe(byPos.stdout);
+  });
+});
+
 describe("훅 입구 (4dd check hook)", () => {
   it("하네스가 띄운 세션이 아니면 아무것도 하지 않는다", () => {
     const before = hookRuns().length;
