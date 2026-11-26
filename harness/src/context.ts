@@ -8,8 +8,9 @@ import { join } from "node:path";
 import { taskStartRef, GATE_DIR } from "./gate.ts";
 import { git } from "./git.ts";
 import { DIR, readEvents, type LedgerEvent } from "./ledger.ts";
-import { getNode, instructionPath, type NodeSet } from "./nodes.ts";
-import { checkProject, scenariosForTask, type FeatureTrace } from "./trace.ts";
+import { getNode, instructionPath, resolveWrites, type NodeDef, type NodeSet } from "./nodes.ts";
+import { featureFiles, featureIds, featurePath, readSprint, readText, SPRINT_FILE } from "./plan.ts";
+import { checkProject, featureNames, nextIds, parseSpec, parseTasks, scenariosForTask, type FeatureTrace } from "./trace.ts";
 
 export const HUMAN_DIR = `${DIR}/human`;
 
@@ -67,33 +68,50 @@ export interface ContextOptions {
   root: string;
   nodes: NodeSet;
   nodeId: string;
-  task: string;
+  /** Stage 2의 작업. Stage 0·1에서는 null (Stage 2에서 돌아온 경우에는 원래 작업) */
+  task: string | null;
+  /** 지금 기능 폴더 이름 (조각 2) */
+  feature?: string | null;
+  /** 지시문 대신 쓸 파일 (nodes.yaml 기준 경로): 관문의 리뷰 세션 (N13, N14) */
+  instruction?: string;
+  /** 읽기 전용 리뷰 세션 */
+  readOnly?: boolean;
 }
 
 export function buildContext(opts: ContextOptions): BuiltContext {
   const { root, nodes, nodeId, task } = opts;
+  const feature = opts.feature ?? null;
   const node = getNode(nodes, nodeId);
   const loaded: Loaded[] = [];
   const parts: string[] = [];
 
-  parts.push(`# 4DD 하네스 · ${node.id} ${node.name} · 작업 ${task}`);
-  const writes = node.writes.length ? node.writes.map((w) => `\`${w}\``).join(", ") : "없음 (읽기 전용)";
+  const unit = task ? `작업 ${task}` : `기능 ${feature ?? "-"}`;
+  parts.push(`# 4DD 하네스 · ${node.id} ${node.name}${opts.readOnly ? " (리뷰)" : ""} · ${unit}`);
+  const resolved = resolveWrites(node, feature);
+  const writes = !opts.readOnly && resolved.length ? resolved.map((w) => `\`${w}\``).join(", ") : "없음 (읽기 전용)";
   parts.push(
     [
       "당신은 4DD 하네스가 띄운 세션입니다. 이번 차례에는 아래 노드 하나만 처리하고 끝냅니다.",
       "- 다음 노드로 넘어가거나 관문을 판정하지 않습니다. 끝나면 하네스가 관문을 돌립니다.",
       `- 이 노드에서 고칠 수 있는 곳: ${writes}. 다른 곳을 고치려 하면 막히고, 고쳐도 하네스가 되돌립니다.`,
       "- 커밋하지 않습니다. 하네스가 합니다.",
-      "- 테스트는 `npx vitest run <파일>`로 직접 돌려 봐도 됩니다.",
+      ...(node.stage >= 2 ? ["- 테스트는 `npx vitest run <파일>`로 직접 돌려 봐도 됩니다."] : ["- 사람 명령(4dd human, story, review)은 쓰지 않습니다. 승인은 PO가 합니다."]),
     ].join("\n"),
   );
 
-  const ipath = instructionPath(nodes, nodeId);
+  const ipath = opts.instruction ? join(nodes.dir, opts.instruction) : instructionPath(nodes, nodeId);
   if (ipath) {
     const text = readFileSync(ipath, "utf8");
     parts.push(text.trim());
-    loaded.push({ kind: "instruction", id: nodeId, hash: shortHash(text) });
+    loaded.push({ kind: "instruction", id: opts.instruction ? `${nodeId}.review` : nodeId, hash: shortHash(text) });
   }
+
+  if (node.stage < 2) {
+    if (!feature) throw new Error(`${nodeId}: 어느 기능의 노드인지 모릅니다`);
+    parts.push(planWork(root, node, feature, task).join("\n\n"));
+    return { prompt: parts.join("\n\n") + "\n", loaded };
+  }
+  if (!task) throw new Error(`${nodeId}: 작업 없이 Stage 2 노드의 맥락을 만들 수 없습니다`);
 
   const trace = featureOf(root, task);
   const t = trace?.tasks.find((x) => x.id === task);
@@ -167,4 +185,125 @@ export function buildContext(opts: ContextOptions): BuiltContext {
 
   parts.push(work.join("\n\n"));
   return { prompt: parts.join("\n\n") + "\n", loaded };
+}
+
+// ---------------------------------------------------------------- Stage 0·1의 「이번 기능」 (조각 2)
+
+const cap = (text: string, n = 8000) => (text.length > n ? `${text.slice(0, n)}\n… (${text.length - n}자 줄임)` : text);
+
+/** 일감(기능 또는 Stage 2에서 돌아온 작업)의 마지막 노드가 실패했으면 그 관문 요약과 리뷰 지적 */
+function lastFailure(root: string, events: LedgerEvent[], match: (e: Extract<LedgerEvent, { type: "node_end" }>) => boolean): string {
+  const lastEnd = lastFor(events, "node_end", match);
+  if (!lastEnd || lastEnd.result !== "fail") return "";
+  const summary = join(root, GATE_DIR, `${lastEnd.id}.summary.md`);
+  return existsSync(summary) ? `### 지난 관문 결과 (${lastEnd.node})\n${readFileSync(summary, "utf8").trim()}` : "";
+}
+
+/** 마지막 검토 승인 뒤에 남은 사람의 말 (PO의 되돌림 의견, 힌트, 원인을 승인하며 준 답) */
+function humanWords(root: string, events: LedgerEvent[], match: (e: Extract<LedgerEvent, { type: "human" }>) => boolean): string[] {
+  const mine = events.filter((e): e is Extract<LedgerEvent, { type: "human" }> => e.type === "human" && match(e));
+  const after = mine.slice(mine.findLastIndex((e) => e.kind === "approve" && !!e.review) + 1);
+  return after
+    .filter((e) => ["reject", "hint", "approve"].includes(e.kind) && existsSync(join(root, HUMAN_DIR, `${e.id}.md`)))
+    .map((e) => {
+      const what = e.kind === "reject" ? `${e.node} 되돌림${e.cause ? ` · ${e.cause}` : ""}${e.to ? ` · ${e.to}부터` : ""}` : e.kind === "hint" ? "힌트" : `${e.node} 승인하며 준 답`;
+      return `### PO의 말 (${e.id}, ${what})\n${readFileSync(join(root, HUMAN_DIR, `${e.id}.md`), "utf8").trim()}`;
+    });
+}
+
+function planWork(root: string, node: NodeDef, feature: string, task: string | null): string[] {
+  const { events } = readEvents(root);
+  const reads = new Set(node.reads);
+  const fp = (file: string) => featurePath(feature, file);
+  const others = featureNames(root).filter((f) => f !== feature);
+  const work: string[] = [`## 이번 기능 (${feature})`];
+
+  if (task) {
+    // Stage 2에서 돌아옴: 그 작업이 처음 실패한 판단 노드의 요약
+    const fail = events.filter((e): e is Extract<LedgerEvent, { type: "node_end" }> => e.type === "node_end" && e.task === task && e.result === "fail" && (e.node === "N26" || e.node === "N27" || e.node === "N28")).at(-1);
+    const summary = fail ? join(root, GATE_DIR, `${fail.id}.summary.md`) : "";
+    work.push(
+      [
+        `### Stage 2에서 돌아옴 (작업 ${task}${fail ? `, ${fail.node}에서 ${fail.cause ?? ""}` : ""})`,
+        node.id === "N02" ? "개발 중에 스펙의 빈틈이 드러나 PO 승인을 받고 돌아왔습니다. 요구사항을 더하거나 빼지 않고, 있는 요구사항의 문장과 규칙만 고칩니다. 새 요구는 새 스토리로 따로 받습니다." : "개발 중에 드러난 문제를 고치러 PO 승인을 받고 돌아왔습니다. 고친 뒤 다시 승인받으면 원래 작업으로 돌아갑니다.",
+        summary && existsSync(summary) ? readFileSync(summary, "utf8").trim() : "",
+      ].filter(Boolean).join("\n"),
+    );
+  }
+  if (reads.has("story")) {
+    const story = readText(root, fp("story.md"));
+    if (story) work.push(`### 스토리 (PO의 말, ${fp("story.md")})\n${story.replace(/^#.*\n+/, "").trim()}`);
+  }
+  if (reads.has("spec")) {
+    const spec = readText(root, fp("spec.md"));
+    if (spec) work.push(`### 스펙 (${fp("spec.md")})\n${spec.trim()}`);
+  }
+  if (reads.has("ids")) {
+    const own = featureIds(root, feature);
+    const ownT = parseTasks(readText(root, fp("tasks.md")) ?? "", "tasks.md").tasks.map((t) => t.id);
+    const n = nextIds(root);
+    const has = [...own.R, ...own.S, ...ownT];
+    work.push(
+      [
+        "### 이번 기능에서 쓸 ID",
+        has.length ? `- 이 기능이 이미 쓰는 ID: ${has.join(", ")} (그대로 둡니다)` : "- 이 기능은 아직 ID가 없습니다.",
+        `- 새로 쓰는 ID는 요구사항 R${n.R}, 시나리오 S${n.S}, 작업 T${n.T}부터 이어 씁니다. 다른 기능의 번호는 쓰지 않습니다.`,
+      ].join("\n"),
+    );
+  }
+  if (reads.has("other_specs") && others.length) {
+    const lines = others.map((f) => {
+      const reqs = parseSpec(readText(root, featurePath(f, "spec.md")) ?? "", "spec.md").requirements;
+      return `- ${f}: ${reqs.map((r) => `${r.id} ${r.text}`).join(" / ")}`;
+    });
+    work.push(`### 다른 기능의 요구사항\n${lines.join("\n")}`);
+  }
+  if (reads.has("scenarios")) {
+    const files = featureFiles(root, feature);
+    if (files.length) work.push(`### 시나리오 (${files.join(", ")})\n\`\`\`gherkin\n${files.map((f) => readText(root, f) ?? "").join("\n").trim()}\n\`\`\``);
+  }
+  if (reads.has("design")) {
+    const d = readText(root, fp("design.md"));
+    if (d) work.push(`### 설계 (${fp("design.md")})\n${d.trim()}`);
+  }
+  if (reads.has("other_designs")) {
+    for (const f of others) {
+      const d = readText(root, featurePath(f, "design.md"));
+      if (d) work.push(`### 다른 기능의 설계 (${featurePath(f, "design.md")})\n${cap(d.trim(), 6000)}`);
+    }
+  }
+  if (reads.has("src_map")) {
+    const files = git(root, ["ls-files", "src", "tests"]).split("\n").filter((f) => f && !f.endsWith(".gitkeep"));
+    const exportsOf = (f: string) =>
+      (readText(root, f) ?? "")
+        .split("\n")
+        .filter((l) => /^export\s/.test(l))
+        .map((l) => `    ${l.replace(/\s*\{\s*$/, "").slice(0, 140)}`)
+        .slice(0, 12)
+        .join("\n");
+    const lines = files.map((f) => (f.startsWith("src/") ? `- ${f}\n${exportsOf(f)}`.trimEnd() : `- ${f}`));
+    work.push(`### 소스 파일 목록 (src/의 export 줄 포함)\n${lines.join("\n") || "(아직 없음)"}`);
+  }
+  if (reads.has("tasks")) {
+    const t = readText(root, fp("tasks.md"));
+    if (t) work.push(`### 작업 목록 (${fp("tasks.md")})\n${t.trim()}`);
+  }
+  if (reads.has("sprint")) {
+    const s = readText(root, SPRINT_FILE);
+    work.push(s ? `### 스프린트 (${SPRINT_FILE})\n${s.trim()}` : `### 스프린트\n${SPRINT_FILE}이 아직 없습니다.`);
+    if (node.id === "N15") {
+      const sprint = readSprint(root);
+      for (const f of sprint?.features ?? [feature]) {
+        const t = readText(root, featurePath(f, "tasks.md"));
+        if (t && f !== feature) work.push(`### 작업 목록 (${featurePath(f, "tasks.md")})\n${t.trim()}`);
+      }
+    }
+  }
+  const inUnit = (e: { task: string | null; feature?: string }) => (task ? e.task === task : e.task === null && e.feature === feature);
+  if (reads.has("last_gate")) {
+    const f = lastFailure(root, events, (e) => inUnit(e));
+    if (f) work.push(f);
+  }
+  if (reads.has("hint")) work.push(...humanWords(root, events, (e) => inUnit(e)));
+  return work;
 }

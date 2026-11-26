@@ -129,12 +129,17 @@ describe("지휘 루프", () => {
     const msg = humanAction(root, "hint", "src/t1.ts에 ok를 true로 내보내세요");
     expect(msg).toContain("학습 후보 L1");
     expect(existsSync(join(root, ".4dd/learnings.yaml"))).toBe(true);
+    // 힌트 글과 학습 후보는 바로 커밋된다 (2026-11-26: 커밋하지 않아 다음 노드의 변경 검사가 지웠음)
+    expect(git(root, ["status", "--porcelain", "--", ".4dd/human", ".4dd/learnings.yaml"]).trim()).toBe("");
     const second = runLoop({ root, adapter: agent, maxTasks: 1 });
     expect(second.reason, second.message).toBe("paused");
     expect(loadState(root).state.done_tasks).toEqual(["T1"]);
     const humans = readEvents(root).events.filter((e) => e.type === "human");
     expect(humans).toHaveLength(1);
     expect(humans[0]).toMatchObject({ kind: "hint", node: "N24", task: "T1", reason: "budget_exceeded" });
+    expect(existsSync(join(root, `.4dd/human/${humans[0].type === "human" ? humans[0].id : ""}.md`))).toBe(true);
+    const blocked = readEvents(root).events.filter((e) => e.type === "hook_run" && e.check === "diff_lock" && String(e.target ?? "").startsWith(".4dd/"));
+    expect(blocked).toEqual([]);
   });
 
   it("리뷰가 arch_wrong이면 사람을 기다리고, 보류하면 다음 작업으로 간다", () => {

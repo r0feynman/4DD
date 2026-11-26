@@ -16,6 +16,22 @@
 | 8 | `4dd report` | 끝 |
 | 9 | 완료 기준 전체를 Claude와 Codex로 | 끝: 두 도구 모두 T1~T3을 사람 개입 없이 |
 
+### 조각 2 ([명세](../docs/harness-slice2.md))
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | 프로젝트 전체 ID(`4dd ids`, 겹침 검사, `--stage 0`)와 시험 프로젝트 `login-reset` | 끝 |
+| 2 | `nodes.yaml` 넓히기: N01~N15, 사람 노드, 스테이지 세션, 리뷰 관문, 승인과 패킷 | 끝 (Stage 0·1 관문 검사, 지시문 포함) |
+| 3 | 원장과 상태: `review`, `packet`, 넓힌 `human` | 끝 (다음 할 일 정하기의 Stage 0·1 경로 포함) |
+| 4 | 사람 명령: `4dd story`, `4dd review`, `4dd human approve·reject --review` | 끝 (검토 페이지, 검토 해시, 셸에서 사람 명령 막기) |
+| 5 | 노드 지시문과 `4dd context`의 새 읽을거리 | 끝 (「이번 기능」, PO의 말, Stage 2에서 돌아옴) |
+| 6 | 지휘 루프: Stage 0 → 1 → 2 | 끝 (각본 PO로 스토리부터 Stage 2 끝까지, 스테이지 세션, 리뷰 세션 관문) |
+| 7 | PO 창구 스킬 `4dd-po`와 검토 페이지 게시 | 끝 (`4dd init`이 스킬을 넣음, 검토 페이지 휴대폰 폭 확인) |
+| 8 | `4dd report`에 더하는 질의 | 끝 (기능별 사람 개입·대기·되돌림·스테이지별 토큰) |
+| 9 | 완료 기준 전체 | 끝 (두 도구로 각본 PO 실행, 고친 하네스로 Codex 사람 개입 0번. 오너가 PO인 실행 「회원 가입」으로 작업 5개, 거기서 찾은 하네스 문제 다섯 가지 고침) |
+
+전체 조각과 순서는 [하네스 설계의 「구현 조각」](../docs/harness-design.md#구현-조각)에 있습니다.
+
 ## 폴더
 
 ```
@@ -42,10 +58,16 @@ src/run.ts                  4dd run: 지휘 루프 (작업 선택, 노드 실행
 src/human.ts                4dd human: 승인, 힌트(학습 후보), 분류 바로잡기, 보류
 src/classify.ts             실패 원인 분류 (기계 → 세션이 고름 → 기본 원인)
 src/report.ts               4dd report: 개선 지표와 반복 실수·비효율 질의
+src/plan.ts                 Stage 0·1의 산출물 읽기: 칸, 물을 것, 스프린트, 검토·패킷 해시 (조각 2)
+src/po.ts                   PO 창구의 사람 명령: 4dd story, 4dd review, 검토 승인·되돌림 (조각 2)
+src/review.ts               검토 페이지 HTML (N04 스펙·시나리오, N15 목표·백로그·설계)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
+skills/4dd-po/              PO 창구 스킬 원본 (4dd init이 프로젝트의 .claude/skills/로 넣음)
 test/                       하네스 테스트
 fixtures/login-backend/     시험 프로젝트 원본 (4dd init이 복사해서 돌림)
+fixtures/login-reset/       로그인이 끝난 시험 프로젝트 (조각 2, 두 번째 기능을 더함)
+fixtures/login-reset.story.md  조각 2 시험 스토리 (PO 창구가 4dd story로 넣음)
 ```
 
 ## 쓰는 법

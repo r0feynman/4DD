@@ -7,9 +7,9 @@ import { allowedCauses, budgetFor, failRoute, instructionPath, loadNodes, nextNo
 describe("하네스의 nodes.yaml", () => {
   const set = loadNodes();
 
-  it("Stage 2의 노드 아홉 개를 파일 순서대로 읽는다", () => {
+  it("Stage 0·1(조각 2)과 Stage 2의 노드를 파일 순서대로 읽는다", () => {
     expect(set.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(set.order).toEqual(["N21", "N22", "N23", "N24", "N25", "N26", "N27", "N28", "N29"]);
+    expect(set.order).toEqual(["N01", "N02", "N03", "N04", "N11", "N12", "N13", "N14", "N15", "N21", "N22", "N23", "N24", "N25", "N26", "N27", "N28", "N29"]);
   });
 
   it("노드마다 맡는 쪽과 고칠 수 있는 경로가 명세 표와 같다", () => {
@@ -39,8 +39,10 @@ describe("하네스의 nodes.yaml", () => {
   it("실패 원인별로 갈 곳", () => {
     expect(failRoute(set, "N26", "code_bug")).toEqual({ goto: "N23" });
     expect(failRoute(set, "N26", "test_flaky")).toEqual({ goto: "N22", then: "N26" });
-    expect(failRoute(set, "N26", "spec_ambiguous")).toEqual({ goto: "human", then: "N22" });
-    expect(failRoute(set, "N27", "arch_wrong")).toEqual({ goto: "human", then: "N21" });
+    expect(failRoute(set, "N26", "spec_ambiguous")).toEqual({ goto: "N02", then: "N22", confirm: true });
+    expect(failRoute(set, "N26", "env")).toEqual({ goto: "human", then: "N22" });
+    expect(failRoute(set, "N27", "arch_wrong")).toEqual({ goto: "N13", then: "N21", confirm: true });
+    expect(failRoute(set, "N04", "spec_missing_state")).toEqual({ goto: "N02" });
     expect(failRoute(set, "N26", "ui_mismatch")).toBeNull();
     expect(allowedCauses(set, "N27")).toEqual(["code_bug", "arch_wrong"]);
   });
@@ -98,7 +100,7 @@ describe("잘못된 노드 정의를 잡는다", () => {
   it("관문 없는 작업 세션 노드, on_fail 없는 판단 노드", () => {
     expect(problems(WORKER.replace('  gate: {run: "npm test", expect: pass}\n', ""))).toContain("N24: 작업 세션 노드에는 끝났는지 볼 관문(gate)이 있어야 합니다");
     const yaml = WORKER + "N26:\n  name: 판단\n  stage: 2\n  method: bdd\n  kind: decision\n  actor: harness\n  gate: {run: x, expect: pass}\n";
-    expect(problems(yaml)).toContain("N26: 판단 노드에는 실패 원인별로 갈 곳(on_fail)이 있어야 합니다");
+    expect(problems(yaml)).toContain("N26: 판단 노드에는 실패했을 때 갈 곳(on_fail이나 otherwise)이 있어야 합니다");
   });
 
   it("모르는 키와 틀린 필드 값", () => {

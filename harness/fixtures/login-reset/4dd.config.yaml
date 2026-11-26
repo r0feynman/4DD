@@ -1,0 +1,10 @@
+# 4DD 하네스 프로젝트 설정 (첫 구현 조각: 백엔드)
+work_type: backend
+profile: full
+agent: claude                 # claude | codex
+commands:
+  unit: npx vitest run tests/unit
+  acceptance: npx vitest run tests/acceptance
+  run_files: npx vitest run        # 파일을 받아 그 테스트만 돌림 (N22, N26이 작업의 시나리오만 돌릴 때)
+# 모든 노드에서 잠긴 경로. 노드의 writes에 적힌 경로만 그 노드에서 풀린다.
+locked: ["specs/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".githooks/**"]

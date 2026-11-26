@@ -28,7 +28,9 @@ PAGES = [
     ("index.html", "개발론"),
     ("workflow.html", "워크플로"),
     ("harness.html", "하네스 설계"),
-    ("slice1.html", "첫 구현 조각"),
+    ("slices.html", "구현 조각"),
+    ("slice1.html", "조각 1"),
+    ("slice2.html", "조각 2"),
     ("glossary.html", "용어집"),
     ("changes.html", "변경 기록"),
 ]
@@ -862,56 +864,242 @@ def page_harness(ctx):
 
 # ---------------------------------------------------------------- 페이지: 첫 구현 조각
 
-WHO = {"하네스": "w-h", "작업 세션": "w-w", "리뷰 세션": "w-r"}
+WHO = {"하네스": "w-h", "작업 세션": "w-w", "리뷰 세션": "w-r", "사람": "w-p"}
 
 
-def page_slice1(ctx):
-    sd = read("docs/harness-slice1.md")
-    intro_paras = [p.strip() for p in sd.split("\n## ", 1)[0].split("\n\n") if p.strip() and not p.lstrip().startswith(("#", ">"))]
-    if not intro_paras:
-        raise BuildError("첫 구현 조각 명세의 첫 문단을 찾지 못했습니다")
+# 구현 조각 명세(harness-slice*.md)는 같은 제목과 표 모양으로 씁니다. 아래 함수들이 두 페이지에서 같은 그림을 만듭니다.
 
-    decided = "".join(
-        f'<div class="card top c-human"><span class="k">{inline(r["항목"])} · 오너 결정</span><span class="t">{inline(r["결정"])}</span><span class="d">{inline(r["이유"])}</span></div>'
-        for r in first_table(sd, "## 정한 것")
+def slice_intro(sd, what):
+    paras = [p.strip() for p in sd.split("\n## ", 1)[0].split("\n\n") if p.strip() and not p.lstrip().startswith(("#", ">"))]
+    if not paras:
+        raise BuildError(f"{what} 명세의 첫 문단을 찾지 못했습니다")
+    return paras[0]
+
+
+def slice_table_cards(sd, heading, cols, label, cls):
+    k, t, d = cols
+    return "".join(
+        f'<div class="card top {cls}"><span class="k">{inline(r[k])} · {label}</span><span class="t">{inline(r[t])}</span><span class="d">{inline(r[d])}</span></div>'
+        for r in first_table(sd, heading)
     )
 
+
+def slice_scope(ctx, sd):
     scope = dict(bold_bullets(section(sd, "## 범위")))
     if "하는 것" not in scope or "하지 않는 것" not in scope:
         raise BuildError("범위에서 「하는 것」, 「하지 않는 것」을 찾지 못했습니다")
     do_items = [x.strip().rstrip(".") for x in scope["하는 것"].split(", ")]
     not_text, _, not_note = scope["하지 않는 것"].partition(". ")
     not_items = [x.strip().rstrip(".") for x in not_text.split(", ")]
-    scope_html = (
+    return (
         f'<div class="scope-col scope-do"><h3>하는 것</h3><div class="sc-chips">{"".join(f"<span class=sc>{chipify(ctx, x)}</span>" for x in do_items)}</div></div>'
         f'<div class="scope-col scope-not"><h3>하지 않는 것</h3><div class="sc-chips">{"".join(f"<span class=sc>{chipify(ctx, x)}</span>" for x in not_items)}</div><small>{inline(not_note)}</small></div>'
     )
 
+
+def slice_parts(ctx, sd, arrow):
     parts = first_table(sd, "## 구조")
-    parts_html = (
+    return (
         f'<div class="part part-main"><b>{inline(parts[0]["부분"])}</b><span>{inline(parts[0]["하는 일"])}</span></div>'
-        '<div class="part-arrow" aria-hidden="true">↓ 부리고 기록함</div>'
+        f'<div class="part-arrow" aria-hidden="true">↓ {esc(arrow)}</div>'
         '<div class="parts">' + "".join(f'<div class="part"><b>{inline(r["부분"])}</b><span>{chipify(ctx, r["하는 일"])}</span></div>' for r in parts[1:]) + "</div>"
     )
 
+
+def who_chips(who):
+    names = [w.strip() for w in who.split("→")]
+    return '<span class="who-sep" aria-hidden="true">→</span>'.join(f'<span class="who {WHO.get(w, "w-h")}">{esc(w)}</span>' for w in names)
+
+
+def slice_nodes(ctx, sd):
     nrows = []
     for r in first_table(sd, "## 노드마다 누가 무엇을"):
         nid = r["노드"].strip()
-        who = r["누가"].strip()
         writes = r["고칠 수 있는 곳"].strip()
         wchips = "".join(f'<code class="wr">{esc(w.strip(" `"))}</code>' for w in writes.split(",")) if writes not in ("—", "") and "`" in writes else f'<span class="wr-none">{"고치는 곳 없음" if writes in ("—", "") else inline(writes)}</span>'
         fail = r["실패하면"].strip()
         nrows.append(
-            f'<div class="nrow"><div class="nhead">{idchip(ctx, nid)}<span class="who {WHO.get(who, "w-h")}">{esc(who)}</span></div>'
+            f'<div class="nrow"><div class="nhead">{idchip(ctx, nid)}{who_chips(r["누가"].strip())}</div>'
             f'<div class="nbody"><div class="nwr">{wchips}</div><div class="npass"><i>통과</i>{chipify(ctx, r["통과 조건"])}</div>'
             f'{"" if fail in ("—", "") else f"<div class=nfail><i>실패</i>{chipify(ctx, fail)}</div>"}</div></div>'
         )
+    return nrows
 
+
+def slice_pipeline(ctx, sd, heading):
+    sec = section(sd, heading)
+    m = re.search(r"```\n(.*?)```", sec, flags=re.S)
+    if not m:
+        raise BuildError(f"{heading[3:]} 그림을 찾지 못했습니다")
+    layers = [x.strip() for x in m.group(1).strip().split("─▶")]
+    notes = bold_bullets(sec)
+    steps, key_name = [], ""
+    for name in layers:
+        short = name.split(" (")[0]
+        note = next((v for k, v in notes if short in k or k in short), "")
+        key = ""
+        if "결정적" in note:
+            key, key_name = " g-key", short
+        if steps:
+            steps.append('<span class="sep" aria-hidden="true">→</span>')
+        steps.append(f'<div class="step c-plain{key}"><b>{inline(name)}</b><span class="do">{chipify(ctx, head_sentence(note))}</span></div>')
+    return "".join(steps), key_name
+
+
+def slice_cmds(sd):
     cmds_h, cmds_m = [], []
     for r in first_table(sd, "## `4dd` 명령"):
         card = (f'<div class="cmd"><code>{esc(r["명령"].strip("` ").replace(chr(92) + "|", "|"))}</code>'
                 f'<span>{inline(r["하는 일"])}</span><small>{inline(r["종료 코드"])}</small></div>')
-        (cmds_h if r["누가 부르나"].strip() == "사람" else cmds_m).append(card)
+        (cmds_h if r["누가 부르나"].strip() in ("사람", "PO 창구") else cmds_m).append(card)
+    return cmds_h, cmds_m
+
+
+def slice_events(sd):
+    return "".join(
+        f'<div class="ev"><code>{esc(r["이벤트"].split(" (")[0].strip("` "))}</code>'
+        f'{"<em class=ev-tag>" + esc(r["이벤트"].split(" (", 1)[1].rstrip(")")) + "</em>" if " (" in r["이벤트"] else ""}'
+        f'<span>{inline(r["언제"])}</span><small>{inline(r["주요 필드"])}</small></div>'
+        for r in first_table(sd, "## 원장 이벤트")
+    )
+
+
+def slice_human(sd):
+    return "".join(
+        f'<div class="less-row"><b>{inline(r["언제"])}</b><span class="before">{inline(r["사람이 하는 일"])}</span><span class="arrow" aria-hidden="true">→</span><span class="after">{inline(r["명령"])}</span></div>'
+        for r in first_table(sd, "## 사람이 하는 일")
+    )
+
+
+def slice_steps(ctx, sd):
+    steps = first_table(sd, "## 구현 순서")
+    html_ = "".join(
+        f'<div class="lstep c-plain"><span class="n">{esc(r["단계"])}</span><b>{inline(r["만드는 것"])}</b><span class="when">확인 · {chipify(ctx, r["확인"])}</span></div>'
+        for r in steps
+    )
+    note = next((p.strip() for p in section(sd, "## 구현 순서").split("\n\n") if p.strip() and not p.lstrip().startswith("|")), "")
+    return len(steps), html_, note
+
+
+def slice_done(ctx, sd):
+    done = [l[6:].strip() for l in section(sd, "## 완료 기준").splitlines() if l.startswith("- [ ] ")]
+    return len(done), "".join(f'<li><span class="box" aria-hidden="true"></span><span>{chipify(ctx, d)}</span></li>' for d in done)
+
+
+def split_top(text, sep=", "):
+    """괄호 밖의 sep로만 나눈다 ("Figma 노드(N00F, N03W)"는 한 덩어리)."""
+    out, cur, depth, i = [], "", 0, 0
+    while i < len(text):
+        ch = text[i]
+        depth += ch in "(（"
+        depth -= ch in ")）"
+        if depth == 0 and text.startswith(sep, i):
+            out.append(cur.strip())
+            cur, i = "", i + len(sep)
+            continue
+        cur += ch
+        i += 1
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+SLICE_STATUS = {"끝": "st-done", "구현": "st-spec", "명세": "st-spec", "계획": "st-plan"}
+
+
+def load_slices():
+    """하네스 설계의 「구현 조각」 표 (조각 목록의 유일한 원본)."""
+    hd = read("docs/harness-design.md")
+    sec = section(hd, "## 구현 조각")
+    head, _, _ = sec.partition("\n### ")
+    rows = first_table(hd, "## 구현 조각")
+    for r in rows:
+        r["n"] = int(r["조각"])
+        r["status"] = r["상태"].split(" (")[0].strip()
+        if r["status"] not in SLICE_STATUS:
+            raise BuildError(f"구현 조각 {r['조각']}의 상태가 끝·명세·계획 가운데 하나가 아닙니다: {r['상태']}")
+        st = r["스테이지"].replace(" ", "")
+        r["stages"] = set(range(int(st.split("~")[0]), int(st.split("~")[1]) + 1)) if "~" in st else {int(x) for x in st.split(",")}
+        r["page"] = f"slice{r['n']}.html" if (ROOT / "docs" / f"harness-slice{r['n']}.md").exists() else ""
+    # 빈 곳 표(영역 | ID | 빈 곳)의 G마다 어느 조각이 채우나. 아무 조각도 채우지 않는 빈 곳이 있으면 멈춘다.
+    gaps = [(r["ID"].strip(), r["빈 곳"].strip()) for r in first_table(hd, "## 빈 곳")]
+    by_gap = {g: [r["n"] for r in rows if g in split_top(r["채우는 빈 곳"])] for g, _ in gaps}
+    missing = [g for g, ns in by_gap.items() if not ns]
+    if missing:
+        raise BuildError(f"어느 구현 조각도 채우지 않는 빈 곳이 있습니다: {', '.join(missing)}")
+    return {
+        "rows": rows,
+        "intro": next((p.strip() for p in head.split("\n\n") if p.strip() and not p.lstrip().startswith(("|", "-"))), ""),
+        "notes": bold_bullets(head),
+        "outside": bold_bullets(section(hd, "### 조각에 넣지 않은 것")),
+        "finish": bold_bullets(section(hd, "### 조각을 모두 끝내면")),
+        "gaps": gaps,
+        "by_gap": by_gap,
+        "source": sec,
+    }
+
+
+def status_chip(r):
+    return f'<span class="st {SLICE_STATUS[r["status"]]}">{esc(r["상태"])}</span>'
+
+
+def slice_nexts(ctx, current):
+    return "".join(
+        f'<div class="lstep c-plain"><span class="n">조각 {r["n"]} · {esc(r["이름"])}</span><span class="do">{chipify(ctx, r["하는 일"])}</span>{status_chip(r)}</div>'
+        for r in load_slices()["rows"] if r["n"] > current
+    )
+
+
+def bold_bullets_nested(text):
+    """'- **이름:** 내용'과 그 아래 들여 쓴 '  - 줄'을 (이름, 내용, [줄])로."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^-\s+\*\*(.+?)\*\*\s*(.*)$", line)
+        if m:
+            out.append((m.group(1).rstrip(":："), m.group(2).strip(), []))
+            continue
+        s = re.match(r"^\s{2,}-\s+(.*)$", line)
+        if s and out:
+            out[-1][2].append(s.group(1).strip())
+    return out
+
+
+def verify_card(ctx, k, v, subs):
+    """「구현하며 확인할 것」 카드. 제목 끝의 (확인함), (남음), (확인함, 날짜)를 칩으로, 들여 쓴 줄은 라벨 붙은 줄로."""
+    st = re.search(r" [(](확인함|남음)(?:, ?([^)]*))?[)]$", k)
+    kind = st.group(1) if st else ("찾아 고친 것" if "찾아 고친" in k else "관찰")
+    title = k[: st.start()] if st else k
+    when = f' <span class="when">{esc(st.group(2))}</span>' if st and st.group(2) else ""
+    rows = ""
+    for s in subs:
+        label, sep, rest = s.partition(": ")
+        if sep and len(label) <= 24:
+            rows += f'<div class="vrow"><b>{inline(label)}</b><span>{chipify(ctx, rest)}</span></div>'
+        else:
+            rows += f'<div class="vrow"><b></b><span>{chipify(ctx, s)}</span></div>'
+    return (
+        f'<div class="card top {"c-plain un" if kind == "남음" else "c-plain"}{" wide" if subs else ""}"><span class="k">{kind}</span>'
+        f'<span class="t">{inline(title)}{when}</span><span class="d">{chipify(ctx, v)}</span>'
+        + (f'<div class="vrows">{rows}</div>' if rows else "")
+        + "</div>"
+    )
+
+
+def bullet_cards(ctx, text, label, cls_for=lambda k: "c-plain"):
+    return "".join(
+        f'<div class="card top {cls_for(k)}"><span class="k">{esc(label)}</span><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
+        for k, v in bold_bullets(text)
+    )
+
+
+def page_slice1(ctx):
+    sd = read("docs/harness-slice1.md")
+    lead = slice_intro(sd, "첫 구현 조각")
+    decided = slice_table_cards(sd, "## 정한 것", ("항목", "결정", "이유"), "오너 결정", "c-human")
+    scope_html = slice_scope(ctx, sd)
+    parts_html = slice_parts(ctx, sd, "부리고 기록함")
+    nrows = slice_nodes(ctx, sd)
+    cmds_h, cmds_m = slice_cmds(sd)
 
     cmp_rows = first_table(sd, "## 도구 어댑터")
     keys = list(cmp_rows[0].keys())
@@ -921,52 +1109,24 @@ def page_slice1(ctx):
         for r in cmp_rows
     )
 
-    guard_sec = section(sd, "## 잠금을 지키는 겹")
-    m = re.search(r"```\n(.*?)```", guard_sec, flags=re.S)
-    if not m:
-        raise BuildError("잠금을 지키는 겹 그림을 찾지 못했습니다")
-    layers = [x.strip() for x in m.group(1).strip().split("─▶")]
-    notes = bold_bullets(guard_sec)
-    gsteps = []
-    for i, name in enumerate(layers):
-        short = name.split(" (")[0]
-        note = next((v for k, v in notes if short in k or k in short), "")
-        key = " g-key" if "결정적" in note else ""
-        if gsteps:
-            gsteps.append('<span class="sep" aria-hidden="true">→</span>')
-        gsteps.append(f'<div class="step c-plain{key}"><b>{inline(name)}</b><span class="do">{chipify(ctx, head_sentence(note))}</span></div>')
+    gsteps, _ = slice_pipeline(ctx, sd, "## 잠금을 지키는 겹")
 
     cls_items = [l.split(". ", 1)[1] for l in section(sd, "## 실패 원인 분류").splitlines() if re.match(r"^\d+\. ", l)]
     cls_html = "".join(f'<div class="lstep c-plain"><span class="n">{i + 1}</span><span class="do">{chipify(ctx, t)}</span></div>' for i, t in enumerate(cls_items))
 
-    events = "".join(
-        f'<div class="ev"><code>{esc(r["이벤트"].strip("` "))}</code><span>{inline(r["언제"])}</span><small>{inline(r["주요 필드"])}</small></div>'
-        for r in first_table(sd, "## 원장 이벤트")
-    )
-
-    human = "".join(
-        f'<div class="less-row"><b>{inline(r["언제"])}</b><span class="before">{inline(r["사람이 하는 일"])}</span><span class="arrow" aria-hidden="true">→</span><span class="after">{inline(r["명령"])}</span></div>'
-        for r in first_table(sd, "## 사람이 하는 일")
-    )
-
-    steps = first_table(sd, "## 구현 순서")
-    steps_html = "".join(
-        f'<div class="lstep c-plain"><span class="n">{esc(r["단계"])}</span><b>{inline(r["만드는 것"])}</b><span class="when">확인 · {chipify(ctx, r["확인"])}</span></div>'
-        for r in steps
-    )
-    order_note = next((p.strip() for p in section(sd, "## 구현 순서").split("\n\n") if p.strip() and not p.lstrip().startswith("|")), "")
-
-    done = [l[6:].strip() for l in section(sd, "## 완료 기준").splitlines() if l.startswith("- [ ] ")]
-    done_html = "".join(f'<li><span class="box" aria-hidden="true"></span><span>{chipify(ctx, d)}</span></li>' for d in done)
+    events = slice_events(sd)
+    human = slice_human(sd)
+    n_steps, steps_html, order_note = slice_steps(ctx, sd)
+    n_done, done_html = slice_done(ctx, sd)
 
     verify = "".join(
         f'<div class="card top c-plain"><span class="k">확인할 것</span><span class="t">{inline(k)}</span><span class="d">{inline(v)}</span></div>'
         for k, v in bold_bullets(section(sd, "## 구현하며 확인할 것"))
     )
-    nexts = "".join(
-        f'<div class="lstep c-plain"><span class="n">조각 {esc(r["조각"])}</span><span class="do">{chipify(ctx, r["붙이는 것"])}</span></div>'
-        for r in first_table(sd, "## 다음 조각")
-    )
+    nexts = slice_nexts(ctx, 1)
+    intro_paras = [lead]
+    steps = range(n_steps)
+    done = range(n_done)
 
     body = f"""
 <header>
@@ -1041,10 +1201,272 @@ def page_slice1(ctx):
 <section>
   <h2>다음 조각</h2>
   <div class="lsteps">{nexts}</div>
+  <p class="route-note">전체 조각과 순서는 <a href="slices.html">구현 조각</a> 페이지 한 곳에 있습니다.</p>
 </section>
 {source_block("docs/harness-slice1.md")}
 """
     return subpage(ctx, "slice1.html", "4DD 첫 구현 조각", body)
+
+
+def page_slice2(ctx):
+    rel = "docs/harness-slice2.md"
+    sd = read(rel)
+    lead = slice_intro(sd, "조각 2")
+    decided = slice_table_cards(sd, "## 정한 것", ("항목", "결정", "이유"), "오너 결정", "c-human")
+    decided_note = next((p.strip() for p in section(sd, "## 정한 것").split("\n\n") if p.strip() and not p.lstrip().startswith("|")), "")
+    scope_html = slice_scope(ctx, sd)
+    parts_html = slice_parts(ctx, sd, "명령으로 옮김")
+    nrows = slice_nodes(ctx, sd)
+    n_human = sum(1 for r in first_table(sd, "## 노드마다 누가 무엇을") if "사람" in r["누가"])
+    node_notes = bullet_cards(ctx, section(sd, "## 노드마다 누가 무엇을").split("\n### ", 1)[0], "노드 규칙")
+    files = bullet_cards(ctx, section(sd, "### 파일 형식"), "파일 형식")
+
+    po_sec = section(sd, "## PO 창구")
+    po_intro = next((p.strip() for p in po_sec.split("\n\n") if p.strip() and not re.match(r"^\d+\. ", p.strip())), "")
+    po_steps = [l.split(". ", 1)[1] for l in po_sec.splitlines() if re.match(r"^\d+\. ", l)]
+    if not po_steps:
+        raise BuildError("PO 창구의 순서를 찾지 못했습니다")
+    po_html = "".join(f'<div class="lstep c-human"><span class="n">{i + 1}</span><span class="do">{chipify(ctx, t)}</span></div>' for i, t in enumerate(po_steps))
+    po_rule = next((p.strip() for p in po_sec.split("\n### ", 1)[0].split("\n\n") if p.strip().startswith("창구는")), "")
+    review_cards = bullet_cards(ctx, section(sd, "### 검토 페이지"), "검토 페이지")
+    approve_cards = bullet_cards(ctx, section(sd, "### 승인과 되돌림"), "승인과 되돌림", lambda k: "c-human" if k.endswith("승인") else "c-plain")
+
+    gsteps, key_name = slice_pipeline(ctx, sd, "## 승인을 지키는 겹")
+    guard_note = next((p.strip() for p in section(sd, "## 승인을 지키는 겹").split("\n\n") if p.strip().startswith("창구가")), "")
+    packet_cards = bullet_cards(ctx, section(sd, "## 스테이지 패킷과 기준 해시"), "패킷과 기준 해시")
+    ids = "".join(
+        f'<div class="card top c-plain"><span class="d">{chipify(ctx, l.strip()[2:])}</span></div>'
+        for l in section(sd, "## 프로젝트 전체 ID").splitlines() if l.startswith("- ")
+    )
+
+    fx_sec = section(sd, "## 시험 프로젝트")
+    quote = re.search(r"^\s*>\s*(.+)$", fx_sec, flags=re.M)
+    if not quote:
+        raise BuildError("시험 프로젝트의 스토리 인용을 찾지 못했습니다")
+    fixture = bullet_cards(ctx, fx_sec, "시험 프로젝트")
+    story_note = next((p.strip() for p in fx_sec.split("\n\n") if p.strip().startswith("로그인의")), "")
+
+    cmds_h, cmds_m = slice_cmds(sd)
+    events = slice_events(sd)
+    ev_notes = bullet_cards(ctx, section(sd, "## 원장 이벤트"), "원장")
+    queries = "".join(
+        f'<div class="card top c-plain"><span class="k">질의</span><span class="t">{chipify(ctx, r["질문"])}</span><span class="d">{chipify(ctx, r["찾아내는 것"])}</span></div>'
+        for r in first_table(sd, "## 보고서에 더하는 것")
+    )
+    human = slice_human(sd)
+    n_steps, steps_html, order_note = slice_steps(ctx, sd)
+    n_done, done_html = slice_done(ctx, sd)
+    nexts = slice_nexts(ctx, 2)
+    cmds_n = len(cmds_h) + len(cmds_m)
+    verify = ""
+    if "## 구현하며 확인할 것" in sd:
+        verify = "".join(verify_card(ctx, k, v, subs) for k, v, subs in bold_bullets_nested(section(sd, "## 구현하며 확인할 것")))
+
+    body = f"""
+<header>
+  <h1>조각 2: Stage 0·1과 사람 승인</h1>
+  <p class="lead">{inline(lead)}</p>
+  <div class="stats">
+    <div class="stat"><b>{len(nrows)}</b><span>노드</span></div>
+    <div class="stat"><b>{n_human}</b><span>사람이 하는 노드</span></div>
+    <div class="stat"><b>{cmds_n}</b><span>4dd 명령</span></div>
+    <div class="stat"><b>{n_steps}</b><span>구현 단계</span></div>
+    <div class="stat"><b>{n_done}</b><span>완료 기준</span></div>
+  </div>
+</header>
+<section>
+  <h2>정한 것</h2>
+  <div class="cards onto-cards">{decided}</div>
+  <p class="route-note">{inline(decided_note)}</p>
+</section>
+<section>
+  <h2>범위</h2>
+  <div class="scope">{scope_html}</div>
+</section>
+<section>
+  <h2>구조</h2>
+  <div class="structure">{parts_html}</div>
+</section>
+<section>
+  <h2>노드마다 누가 무엇을</h2>
+  <p>네 가지 모양이 누가 하는지를 나타냅니다: <span class="who w-p">사람</span> <span class="who w-h">하네스</span> <span class="who w-w">작업 세션</span> <span class="who w-r">리뷰 세션</span></p>
+  <div class="nflow">{"".join(nrows)}</div>
+  <div class="cards onto-cards">{node_notes}</div>
+  <h3 class="sub">파일 형식</h3>
+  <div class="cards onto-cards">{files}</div>
+</section>
+<section>
+  <h2>PO 창구</h2>
+  <p>{inline(po_intro)}</p>
+  <div class="lsteps">{po_html}</div>
+  <p class="route-note">{inline(po_rule)}</p>
+  <h3 class="sub">검토 페이지</h3>
+  <div class="cards onto-cards">{review_cards}</div>
+  <h3 class="sub">승인과 되돌림</h3>
+  <div class="cards onto-cards">{approve_cards}</div>
+</section>
+<section>
+  <h2>승인을 지키는 겹</h2>
+  <p>앞쪽일수록 빨리 막고, 굵은 테두리의 {esc(key_name)}가 결정적인 겹입니다.</p>
+  <div class="pipeline">{gsteps}</div>
+  <p class="route-note">{inline(guard_note)}</p>
+</section>
+<section>
+  <h2>스테이지 패킷과 기준 해시</h2>
+  <div class="cards onto-cards">{packet_cards}</div>
+</section>
+<section>
+  <h2>프로젝트 전체 ID</h2>
+  <div class="cards onto-cards">{ids}</div>
+</section>
+<section>
+  <h2>시험 프로젝트</h2>
+  <blockquote class="story-quote"><span class="k">PO의 스토리</span>{inline(quote.group(1))}</blockquote>
+  <p class="route-note">{inline(story_note)}</p>
+  <div class="cards onto-cards">{fixture}</div>
+</section>
+<section>
+  <h2><code>4dd</code> 명령</h2>
+  <h3 class="sub">사람과 PO 창구가 부르는 것</h3>
+  <div class="cmds">{"".join(cmds_h)}</div>
+  <h3 class="sub">지휘 프로그램, 관문, 훅이 부르는 것</h3>
+  <div class="cmds">{"".join(cmds_m)}</div>
+</section>
+<section>
+  <h2>원장 이벤트</h2>
+  <p>첫 조각의 이벤트 9종에 둘을 더하고 셋을 넓힙니다. 내용은 남기지 않고 ID, 해시, 숫자만 남깁니다.</p>
+  <div class="evs">{events}</div>
+  <div class="cards onto-cards">{ev_notes}</div>
+</section>
+<section>
+  <h2>보고서에 더하는 것</h2>
+  <div class="cards onto-cards">{queries}</div>
+</section>
+<section>
+  <h2>사람이 하는 일</h2>
+  <div class="less">{human}</div>
+</section>
+<section>
+  <h2>구현 순서</h2>
+  <div class="lsteps">{steps_html}</div>
+  <p class="route-note">{inline(order_note)}</p>
+</section>
+<section>
+  <h2>완료 기준</h2>
+  <ul class="chk">{done_html}</ul>
+</section>
+{f'<section><h2>구현하며 확인할 것</h2><div class="cards onto-cards">{verify}</div></section>' if verify else ""}
+<section>
+  <h2>다음 조각</h2>
+  <div class="lsteps">{nexts}</div>
+  <p class="route-note">전체 조각과 순서는 <a href="slices.html">구현 조각</a> 페이지 한 곳에 있습니다.</p>
+</section>
+{source_block(rel)}
+"""
+    return subpage(ctx, "slice2.html", "4DD 조각 2", body)
+
+
+def spec_link(r):
+    if r["page"]:
+        return f'<a class="sc-link" href="{r["page"]}">명세 보기 →</a>'
+    return '<span class="sc-nolink">명세는 앞 조각이 끝난 뒤에 씀</span>'
+
+
+def page_slices(ctx):
+    sl = load_slices()
+    rows = sl["rows"]
+    n = len(rows)
+    count = {k: sum(1 for r in rows if r["status"] == k) for k in SLICE_STATUS}
+
+    # 조각이 쌓이며 되는 것: 막대가 조각마다 한 칸씩 길어진다
+    ladder = "".join(
+        f'<div class="lad-row {SLICE_STATUS[r["status"]]}">'
+        f'<div class="lad-head"><b>조각 {r["n"]}</b>{status_chip(r)}</div>'
+        f'<div class="lad-bar" aria-hidden="true"><span style="width:{round((i + 1) / n * 100)}%"></span></div>'
+        f'<div class="lad-text"><span class="lad-name">{esc(r["이름"])}</span>{chipify(ctx, r["끝나면"])}</div></div>'
+        for i, r in enumerate(rows)
+    )
+
+    # 스테이지 덮기: 조각마다 어느 스테이지를 다루나 (점)
+    head = '<div class="sm-cell sm-h"></div>' + "".join(f'<div class="sm-cell sm-h">Stage {s}</div>' for s in range(5))
+    body_cells = "".join(
+        f'<div class="sm-cell sm-name"><b>조각 {r["n"]}</b><span>{esc(r["이름"])}</span><small>{esc(r["작업 유형"])}</small></div>'
+        + "".join(f'<div class="sm-cell"><span class="dot{" on" if s in r["stages"] else ""}" aria-label="Stage {s} {"다룸" if s in r["stages"] else "안 다룸"}"></span></div>' for s in range(5))
+        for r in rows
+    )
+    matrix = f'<div class="smatrix">{head}{body_cells}</div>'
+
+    cards = "".join(
+        f'<article class="slice-card {SLICE_STATUS[r["status"]]}">'
+        f'<header><span class="sc-n">{r["n"]}</span><div><b>{esc(r["이름"])}</b>{status_chip(r)}</div></header>'
+        f'<div class="sc-sec"><i>하는 일</i><div class="sc-chips">{"".join(f"<span class=sc>{chipify(ctx, x)}</span>" for x in split_top(r["하는 일"]))}</div></div>'
+        f'<div class="sc-sec"><i>채우는 빈 곳</i><div class="sc-chips">{"".join(f"<span class=gtag>{esc(g)}</span>" for g in split_top(r["채우는 빈 곳"]))}</div></div>'
+        f'<div class="sc-sec"><i>끝나면</i><span>{chipify(ctx, r["끝나면"])}</span></div>'
+        f'{spec_link(r)}</article>'
+        for r in rows
+    )
+    notes = "".join(
+        f'<div class="card top c-plain"><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
+        for k, v in sl["notes"]
+    )
+    outside = "".join(
+        f'<div class="card top c-plain un"><span class="k">조각 밖 · 보류</span><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
+        for k, v in sl["outside"]
+    )
+    finish = "".join(
+        f'<div class="card top c-plain"><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
+        for k, v in sl["finish"]
+    )
+    status_of = {r["n"]: r["status"] for r in rows}
+    gap_cells = "".join(
+        f'<div class="gcell{" g-done" if any(status_of[x] == "끝" for x in sl["by_gap"][g]) else ""}">'
+        f'<div class="gc-head"><b>{esc(g)}</b><span class="gc-ns">'
+        + "".join(f'<span class="gn {SLICE_STATUS[status_of[x]]}">{x}</span>' for x in sl["by_gap"][g])
+        + f'</span></div><span class="gc-d">{inline(desc)}</span></div>'
+        for g, desc in sl["gaps"]
+    )
+    n_gap_done = sum(1 for g, _ in sl["gaps"] if any(status_of[x] == "끝" for x in sl["by_gap"][g]))
+
+    body = f"""
+<header>
+  <h1>구현 조각</h1>
+  <p class="lead">{inline(sl["intro"])}</p>
+  <div class="stats">
+    <div class="stat"><b>{n}</b><span>조각</span></div>
+    <div class="stat"><b>{count["끝"]}</b><span>끝</span></div>
+    <div class="stat"><b>{count["구현"] + count["명세"]}</b><span>진행 중</span></div>
+    <div class="stat"><b>{count["계획"]}</b><span>계획</span></div>
+    <div class="stat"><b>{len(sl["gaps"])}</b><span>채울 빈 곳 (G)</span></div>
+  </div>
+</header>
+<section>
+  <h2>조각이 쌓이며 되는 것</h2>
+  <p>막대는 조각을 하나씩 붙일 때마다 하네스가 할 수 있는 일이 늘어나는 것을 나타냅니다. 진한 것이 끝난 조각입니다.</p>
+  <div class="ladder">{ladder}</div>
+</section>
+<section>
+  <h2>조각마다 다루는 스테이지</h2>
+  <p>채운 점이 그 조각에서 하네스가 돌리는 스테이지입니다.</p>
+  {matrix}
+</section>
+<section>
+  <h2>조각마다 하는 일</h2>
+  <div class="slice-cards">{cards}</div>
+  <div class="cards onto-cards">{notes}</div>
+</section>
+<section>
+  <h2>빈 곳 {len(sl["gaps"])}개를 어느 조각이 채우나</h2>
+  <p>하네스 설계가 찾은 빈 곳마다, 그것을 채우는 조각 번호를 붙였습니다. 진한 번호가 끝난 조각입니다. 조각 1이 끝나 손댄 빈 곳은 {n_gap_done}개입니다. 모든 빈 곳에 조각이 하나 이상 있어야 이 페이지가 만들어집니다.</p>
+  <div class="ggrid">{gap_cells}</div>
+</section>
+<section>
+  <h2>조각을 모두 끝내면</h2>
+  <div class="cards onto-cards">{finish}</div>
+  <div class="cards onto-cards">{outside}</div>
+</section>
+<section><details class="source"><summary>원문 펼쳐 보기 · <code>docs/harness-design.md</code> 「구현 조각」</summary><div class="md">{render_md(sl["source"])}</div></details></section>
+"""
+    return subpage(ctx, "slices.html", "4DD 구현 조각", body)
 
 
 def head_sentence(text):
@@ -1178,7 +1600,9 @@ def page_index(ctx):
     <div class="cards">
       <a class="card top c-bdd" href="workflow.html"><span class="k">워크플로</span><span class="t">노드 {wf["nodes"]}개와 되돌림</span><span class="d">스테이지 레인, 실패 원인 {wf["causes"]}개, 횟수 제한</span></a>
       <a class="card top c-sdd" href="harness.html"><span class="k">하네스 설계</span><span class="t">결정 {wf["decisions"]}건 · 열린 결정 {wf["open"]}건</span><span class="d">에이전트가 이 절차를 따르게 하는 구조</span></a>
+      <a class="card top c-scrum" href="slices.html"><span class="k">구현 조각</span><span class="t">조각 {wf["slices"]}개 · 끝난 조각 {wf["slices_done"]}개</span><span class="d">하네스를 처음부터 끝까지 도는 작은 범위로 잘라 차례로 만듦</span></a>
       <a class="card top c-tdd" href="slice1.html"><span class="k">첫 구현 조각</span><span class="t">구현 {wf["slice_steps"]}단계 · 완료 기준 {wf["slice_done"]}개</span><span class="d">백엔드 기능 하나가 Stage 2를 사람 손 없이 도는 것부터</span></a>
+      <a class="card top c-human" href="slice2.html"><span class="k">조각 2 · 명세</span><span class="t">구현 {wf["slice2_steps"]}단계 · 사람이 하는 노드 {wf["slice2_human"]}개</span><span class="d">PO가 채팅으로 스토리를 적고 검토 페이지에서 승인하면 Stage 0부터 끝까지</span></a>
       <a class="card top c-scrum" href="glossary.html"><span class="k">용어집</span><span class="t">용어 {wf["terms"]}개</span><span class="d">노드 ID 읽는 법, 스테이지, 용어</span></a>
       <a class="card top c-fig" href="changes.html"><span class="k">변경 기록</span><span class="t">{wf["changes"]}건 · 최근 {esc(wf["latest"])}</span><span class="d">언제 무엇이 바뀌었나</span></a>
     </div>
@@ -1228,6 +1652,10 @@ def make_context():
         "latest": changes[0]["date"],
         "slice_steps": len(first_table(read("docs/harness-slice1.md"), "## 구현 순서")),
         "slice_done": sum(1 for l in section(read("docs/harness-slice1.md"), "## 완료 기준").splitlines() if l.startswith("- [ ] ")),
+        "slice2_steps": len(first_table(read("docs/harness-slice2.md"), "## 구현 순서")),
+        "slices": len(load_slices()["rows"]),
+        "slices_done": sum(1 for r in load_slices()["rows"] if r["status"] == "끝"),
+        "slice2_human": sum(1 for r in first_table(read("docs/harness-slice2.md"), "## 노드마다 누가 무엇을") if "사람" in r["누가"]),
     }
     return ctx
 
@@ -1242,7 +1670,9 @@ def build():
         "index.html": page_index(ctx),
         "workflow.html": page_workflow(ctx),
         "harness.html": page_harness(ctx),
+        "slices.html": page_slices(ctx),
         "slice1.html": page_slice1(ctx),
+        "slice2.html": page_slice2(ctx),
         "glossary.html": page_glossary(ctx),
         "changes.html": page_changes(ctx),
     }

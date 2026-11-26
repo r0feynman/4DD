@@ -7,21 +7,36 @@ import type { Config } from "./config.ts";
 import { buildContext } from "./context.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { GATE_DIR, runGate, type GateOutcome } from "./gate.ts";
+import { GATE_DIR, REVIEW_NOTE_HEAD, runGate, type GateOutcome } from "./gate.ts";
 import { checkDiff } from "./guard.ts";
 import { appendEvent, nextId, readEvents } from "./ledger.ts";
 import { ledgerIntact, ledgerSnapshot } from "./lock.ts";
-import { getNode, type Cause, type NodeSet } from "./nodes.ts";
-import { loadState } from "./state.ts";
+import { getNode, sessionScope, type Cause, type NodeDef, type NodeSet } from "./nodes.ts";
+import { loadState, type State } from "./state.ts";
+import type { LedgerEvent } from "./ledger.ts";
 
 export interface SessionNodeOptions {
   root: string;
   config: Config;
   nodes: NodeSet;
   nodeId: string;
-  task: string;
+  /** Stage 2의 작업. Stage 0·1에서는 null (Stage 2에서 돌아온 경우에는 원래 작업) */
+  task: string | null;
+  /** 지금 기능 폴더 이름 (조각 2: writes의 {feature}, Stage 0·1 관문과 맥락) */
+  feature?: string | null;
   adapter: Adapter;
   timeoutMs?: number;
+}
+
+/** 이어 쓸 작업 세션: 작업마다(task) 또는 기능의 스테이지마다(stage, 조각 2) */
+export function pickSession(events: LedgerEvent[], nodes: NodeSet, node: NodeDef, task: string | null, feature: string | null, state: State): string | null {
+  if (sessionScope(node) === "task") return task && state.task === task ? state.session : null;
+  const hit = events
+    .filter((e): e is Extract<LedgerEvent, { type: "node_end" }> => e.type === "node_end" && !!e.session)
+    .filter((e) => e.task === task && (task !== null || e.feature === feature))
+    .filter((e) => nodes.nodes[e.node]?.actor === "worker" && nodes.nodes[e.node]?.stage === node.stage)
+    .at(-1);
+  return hit?.session ?? null;
 }
 
 export interface SessionNodeOutcome {
@@ -39,6 +54,7 @@ export interface SessionNodeOutcome {
 
 export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
   const { root, nodes, nodeId, task } = opts;
+  const feature = opts.feature ?? null;
   const node = getNode(nodes, nodeId);
   if (node.actor !== "worker") throw new Error(`${nodeId}는 작업 세션 노드가 아닙니다 (${node.actor})`);
   const H = nodes.version;
@@ -47,18 +63,14 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
   const { events } = readEvents(root);
   const { state } = loadState(root);
   const runId = nextId(events, "NR");
-  const session = state.task === task ? state.session : null;
-  appendEvent(root, H, { type: "node_start", id: runId, node: nodeId, task, session });
+  const session = pickSession(events, nodes, node, task, feature, state);
+  const featureField = feature ? { feature } : {};
+  appendEvent(root, H, { type: "node_start", id: runId, node: nodeId, task, ...featureField, session });
 
-  const ctx = buildContext({ root, nodes, nodeId, task });
+  const ctx = buildContext({ root, nodes, nodeId, task, feature });
   const snap = ledgerSnapshot(root);
-  const turn = opts.adapter.runTurn({
-    root,
-    prompt: ctx.prompt,
-    sessionId: session,
-    env: { FOURDD_ROOT: root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: runId },
-    timeoutMs,
-  });
+  const env = { FOURDD_ROOT: root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: runId, ...(feature ? { FOURDD_FEATURE: feature } : {}) };
+  const turn = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs });
 
   const notes: string[] = [];
   let stop: string | undefined;
@@ -81,32 +93,43 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
   }
 
   // 4. 차례 뒤 변경 검사: 이 노드에서 고칠 수 없는 곳은 되돌린다.
-  const diff = checkDiff(root, nodeId, runId, true, nodes);
+  const diff = checkDiff(root, nodeId, runId, true, nodes, feature);
   if (diff.violations.length) notes.push(diff.message);
 
   // 5. 관문
   let gate: GateOutcome | undefined;
   if (!stop && turn.ok && node.gate) {
-    gate = runGate({ root, config: opts.config, nodes, nodeId, task, runId });
+    gate = runGate({ root, config: opts.config, nodes, nodeId, task, feature, runId });
     if (gate.cause) cause = gate.cause;
     notes.push(gate.summary);
   }
 
-  const passed = !stop && turn.ok && diff.violations.length === 0 && (gate?.passed ?? true);
+  // 6. 관문의 리뷰 세션 (조각 2: N13 설계, N14 작업 나누기). 기계 검사를 통과했을 때만 돈다.
+  let review: GateReview | undefined;
+  if (!stop && turn.ok && diff.violations.length === 0 && gate?.passed && node.gate?.review) {
+    review = runGateReview({ ...opts, feature, runId, env, timeoutMs, gateSummary: gate.summary });
+    if (review.stop) stop = review.stop;
+    if (review.cause) cause = review.cause;
+    notes.push(review.summary);
+  }
+
+  const passed = !stop && turn.ok && diff.violations.length === 0 && (gate?.passed ?? true) && (review?.passed ?? true);
+  const both = review?.turn ? sumTurns(turn, review.turn) : turn;
   appendEvent(root, H, {
     type: "node_end",
     id: runId,
     node: nodeId,
     task,
+    ...featureField,
     result: stop ? "wait" : passed ? "pass" : "fail",
     ...(cause && !passed ? { cause } : {}),
     ...(passed && gate?.alreadyMet ? { already_met: true } : {}),
     session: turn.sessionId,
-    loaded: ctx.loaded,
-    ...(turn.tokens ? { tokens: turn.tokens } : {}),
-    ...(turn.costUsd !== undefined ? { cost_usd: turn.costUsd } : {}),
-    minutes: turn.minutes,
-    ...(turn.turns !== undefined ? { turns: turn.turns } : {}),
+    loaded: [...ctx.loaded, ...(review?.loaded ?? [])],
+    ...(both.tokens ? { tokens: both.tokens } : {}),
+    ...(both.costUsd !== undefined ? { cost_usd: both.costUsd } : {}),
+    minutes: both.minutes,
+    ...(both.turns !== undefined ? { turns: both.turns } : {}),
   });
   loadState(root); // state.json을 원장에 맞춘다
 
@@ -269,3 +292,65 @@ const FIX_ROUTE: Record<"behavior" | "structure" | "acceptance_test", { label: s
   structure: { label: "동작은 맞고 구조만 다름 (N25 리팩터 뒤 N26)", next: "N25" },
   acceptance_test: { label: "인수 테스트가 시나리오를 덜 확인함 (N22 뒤 N26)", next: "N22" },
 };
+
+// ---------------------------------------------------------------- 관문의 리뷰 세션 (조각 2: N13, N14, 승인 L1)
+
+interface GateReview {
+  passed: boolean;
+  cause?: Cause;
+  stop?: string;
+  summary: string;
+  turn?: TurnResult;
+  loaded: ReturnType<typeof buildContext>["loaded"];
+}
+
+function sumTurns(a: TurnResult, b: TurnResult): TurnResult {
+  const tokens =
+    a.tokens || b.tokens
+      ? {
+          input: (a.tokens?.input ?? 0) + (b.tokens?.input ?? 0),
+          output: (a.tokens?.output ?? 0) + (b.tokens?.output ?? 0),
+          ...(a.tokens?.cached !== undefined || b.tokens?.cached !== undefined ? { cached: (a.tokens?.cached ?? 0) + (b.tokens?.cached ?? 0) } : {}),
+        }
+      : undefined;
+  const cost = a.costUsd !== undefined || b.costUsd !== undefined ? (a.costUsd ?? 0) + (b.costUsd ?? 0) : undefined;
+  const turns = a.turns !== undefined || b.turns !== undefined ? (a.turns ?? 0) + (b.turns ?? 0) : undefined;
+  return { ...a, minutes: Math.round((a.minutes + b.minutes) * 100) / 100, ...(tokens ? { tokens } : {}), ...(cost !== undefined ? { costUsd: cost } : {}), ...(turns !== undefined ? { turns } : {}) };
+}
+
+/** 작업 세션이 쓴 것을 새 리뷰 세션(읽기 전용)이 판정한다. 지적은 관문 요약에 붙어 다음 차례의 맥락이 된다. */
+function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: string; env: Record<string, string>; timeoutMs: number; gateSummary: string }): GateReview {
+  const { root, nodes, nodeId, task, feature, runId } = o;
+  const node = getNode(nodes, nodeId);
+  const rctx = buildContext({ root, nodes, nodeId, task, feature, instruction: node.gate!.review!, readOnly: true });
+  const sessionsBefore = readEvents(root).events.filter((e) => e.type === "hook_run" && e.check === "session" && e.run === runId).length;
+  const snap = ledgerSnapshot(root);
+  const turn = o.adapter.runTurn({ root, prompt: rctx.prompt, sessionId: null, env: o.env, timeoutMs: o.timeoutMs, readOnly: true, jsonSchema: REVIEW_SCHEMA });
+  const intact = ledgerIntact(root, snap);
+  let stop: string | undefined;
+  if (!intact.allowed) stop = `원장이 리뷰 세션 동안 바뀌었습니다: ${intact.reason}`;
+  const sessionsAfter = readEvents(root).events.filter((e) => e.type === "hook_run" && e.check === "session" && e.run === runId).length;
+  if (!stop && turn.ok && sessionsAfter <= sessionsBefore) stop = `훅이 돌지 않았습니다 (${o.adapter.agent} 리뷰 세션 시작 기록 없음)`;
+  const diff = checkDiff(root, nodeId, runId, true, nodes, feature);
+  const verdict = turn.ok ? parseVerdict(turn.structured ?? safeJson(turn.text)) : null;
+  const notes: string[] = [];
+  let cause: Cause | undefined;
+  if (!turn.ok) {
+    cause = "env";
+    notes.push(`리뷰 세션이 실패했습니다: ${turn.error ?? "알 수 없는 오류"}`);
+  } else if (!verdict) {
+    cause = "env";
+    notes.push("리뷰 결과를 정해진 형식으로 읽지 못했습니다");
+  } else if (!verdict.pass) {
+    notes.push(`리뷰 세션의 지적 (고친 뒤 다시 리뷰받습니다):\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
+  } else if (verdict.findings.length) {
+    // 통과해도 참고 지적은 남긴다. 「스펙·시나리오 모순」은 검토 페이지가 PO에게 보여 준다
+    notes.push(`${REVIEW_NOTE_HEAD}\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
+  }
+  if (diff.violations.length) notes.push(diff.message);
+  const passed = !stop && turn.ok && !!verdict?.pass && diff.violations.length === 0;
+  const summary = [passed ? `${nodeId} 리뷰 세션 통과` : stop ? `${nodeId} 리뷰 멈춤: ${stop}` : `${nodeId} 리뷰 세션 실패`, ...notes].join("\n");
+  mkdirSync(join(root, GATE_DIR), { recursive: true });
+  writeFileSync(join(root, GATE_DIR, `${runId}.summary.md`), `${o.gateSummary}\n\n${summary}\n`, "utf8");
+  return { passed, ...(cause ? { cause } : {}), ...(stop ? { stop } : {}), summary, turn, loaded: rctx.loaded };
+}

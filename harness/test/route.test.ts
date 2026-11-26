@@ -58,9 +58,15 @@ describe("다음 할 일 정하기", () => {
     expect(next(ev)).toEqual({ kind: "human", node: "N26", reason: "spec_ambiguous" });
   });
 
-  it("사람 승인 뒤: 스펙 원인은 원래 작업의 N22로, 횟수 초과는 다시 시도", () => {
+  it("사람 승인 뒤: 스펙 원인은 스펙(N02)부터 고치고 N04 승인 뒤 원래 작업의 N22로, 횟수 초과는 다시 시도", () => {
     const spec = [...picked(), end({ node: "N26", result: "fail", cause: "spec_ambiguous" }), classify("N26", "spec_ambiguous", true)];
-    expect(next([...spec, human("approve", { reason: "spec_ambiguous" })])).toEqual({ kind: "node", node: "N22" });
+    const ok = [...spec, human("approve", { reason: "spec_ambiguous" })];
+    expect(next(ok)).toEqual({ kind: "node", node: "N02" });
+    expect(next([...ok, end({ node: "N02", result: "pass" })])).toEqual({ kind: "node", node: "N03" });
+    expect(next([...ok, end({ node: "N02", result: "pass" }), end({ node: "N03", result: "pass" })])).toEqual({ kind: "node", node: "N04" });
+    const atN04 = [...ok, end({ node: "N02", result: "pass" }), end({ node: "N03", result: "pass" }), end({ node: "N04", result: "wait" })];
+    expect(next(atN04)).toEqual({ kind: "human", node: "N04", reason: "review" });
+    expect(next([...atN04, human("approve", { node: "N04", review: "RV1" })])).toEqual({ kind: "node", node: "N22" });
     const budget = [...picked(), end({ node: "N26", result: "fail", cause: "code_bug" }), classify("N26", "budget_exceeded", true)];
     expect(next([...budget, human("approve", { reason: "budget_exceeded" })])).toEqual({ kind: "node", node: "N23" });
   });
@@ -77,6 +83,26 @@ describe("다음 할 일 정하기", () => {
     expect(next([...ev, human("reclassify", { cause: "test_flaky" })])).toEqual({ kind: "node", node: "N22" });
     expect(next([...ev, human("reclassify", { cause: "spec_missing_state" })])).toEqual({ kind: "human", node: "N26", reason: "spec_missing_state" });
     expect(next([...ev, human("hold")])).toEqual({ kind: "pick" });
+  });
+
+  it("작업 노드(N24)가 횟수 제한을 넘었을 때 스펙 원인으로 바로잡으면, 사람 승인 뒤 스펙부터 고치고 원래 작업의 N22로", () => {
+    // 2026-11-26 오너가 PO인 실제 실행: 아이디 규칙(4~20자)과 예시 아이디 lee(3자)가 부딪쳐 N24가 3번 실패
+    const stuck = [...picked(), end({ node: "N24", result: "fail" }), end({ node: "N24", result: "fail" }), end({ node: "N24", result: "fail" }), classify("N24", "budget_exceeded", true)];
+    const atN24 = (kind: string, extra: Record<string, unknown> = {}) => human(kind, { node: "N24", ...extra });
+    // 같은 스테이지 원인(code_bug)이면 지금처럼 같은 노드를 다시
+    expect(next([...stuck, atN24("reclassify", { cause: "code_bug" })])).toEqual({ kind: "node", node: "N24" });
+    // 스펙 원인이면 사람(PO)의 승인을 기다린다
+    const re = [...stuck, atN24("reclassify", { cause: "spec_ambiguous" })];
+    expect(next(re)).toEqual({ kind: "human", node: "N24", reason: "spec_ambiguous" });
+    const ok = [...re, atN24("approve", { reason: "spec_ambiguous" })];
+    expect(next(ok)).toEqual({ kind: "node", node: "N02" });
+    const atN04 = [...ok, end({ node: "N02", result: "pass" }), end({ node: "N03", result: "pass" }), end({ node: "N04", result: "wait" })];
+    expect(next(atN04)).toEqual({ kind: "human", node: "N04", reason: "review" });
+    expect(next([...atN04, human("approve", { node: "N04", review: "RV1" })])).toEqual({ kind: "node", node: "N22" });
+    // 설계 원인이면 N27의 경로: 승인 뒤 N13부터
+    const arch = [...stuck, atN24("reclassify", { cause: "arch_wrong" })];
+    expect(next(arch)).toEqual({ kind: "human", node: "N24", reason: "arch_wrong" });
+    expect(next([...arch, atN24("approve", { reason: "arch_wrong" })])).toEqual({ kind: "node", node: "N13" });
   });
 });
 

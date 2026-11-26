@@ -6,7 +6,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { CAUSES, NODE_ID } from "./nodes.ts";
+import { CAUSES, NODE_ID, PACKETS } from "./nodes.ts";
 
 export const SCHEMA_VERSION = 1;
 export const DIR = ".4dd";
@@ -18,6 +18,10 @@ const Node = z.string().regex(NODE_ID);
 const Task = z.string().regex(/^T\d+$/);
 const Cause = z.enum(CAUSES);
 const Id = (prefix: string) => z.string().regex(new RegExp(`^${prefix}\\d+$`), `${prefix}숫자 꼴이어야 합니다`);
+/** 기능 폴더 이름 (specs/<기능>/) */
+export const FEATURE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const Feature = z.string().regex(FEATURE_NAME, "기능 이름은 영문 소문자, 숫자, -만 씁니다");
+const FileHash = z.strictObject({ path: z.string().min(1), hash: z.string().min(1) });
 
 const Common = {
   ts: z.iso.datetime({ offset: true }),
@@ -32,14 +36,16 @@ const Loaded = z.strictObject({
 });
 
 export const EventSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("run_start"), ...Common, run: Id("RUN"), agent: z.enum(["claude", "codex"]), feature: z.string().min(1) }),
-  z.strictObject({ type: z.literal("node_start"), ...Common, id: Id("NR"), node: Node, task: Task.nullable(), session: z.string().min(1).nullable() }),
+  z.strictObject({ type: z.literal("run_start"), ...Common, run: Id("RUN"), agent: z.enum(["claude", "codex"]), feature: z.string().min(1), stage: z.number().int().min(0).max(4).optional() }),
+  z.strictObject({ type: z.literal("node_start"), ...Common, id: Id("NR"), node: Node, task: Task.nullable(), feature: Feature.optional(), session: z.string().min(1).nullable() }),
   z.strictObject({
     type: z.literal("node_end"),
     ...Common,
     id: Id("NR"),
     node: Node,
     task: Task.nullable(),
+    /** Stage 0·1의 노드에는 작업이 없으므로 기능으로 묶는다 (조각 2) */
+    feature: Feature.optional(),
     result: z.enum(["pass", "fail", "wait"]),
     cause: Cause.optional(),
     /** N29에서 작업을 끝냈을 때 true */
@@ -95,13 +101,48 @@ export const EventSchema = z.discriminatedUnion("type", [
     id: Id("HU"),
     node: Node,
     task: Task.nullable(),
-    kind: z.enum(["approve", "edit", "hint", "reject", "reclassify", "hold"]),
+    kind: z.enum(["approve", "edit", "hint", "reject", "reclassify", "hold", "story"]),
     reason: Cause.optional(),
-    /** reclassify일 때 바로잡은 원인 */
+    /** reclassify일 때 바로잡은 원인, reject(N04)일 때 고칠 곳의 원인 */
     cause: Cause.optional(),
     minutes: z.number().min(0).optional(),
-    /** 힌트 글은 .4dd/human/<id>.md에 두고 원장에는 해시만 */
+    /** 힌트 글, PO의 말, 스토리는 .4dd/human/<id>.md에 두고 원장에는 해시만 */
     text_hash: z.string().optional(),
+    // 조각 2: 승인 통로
+    feature: Feature.optional(),
+    /** 어느 검토 페이지를 보고 한 승인·되돌림인가 */
+    review: Id("RV").optional(),
+    /** po: PO의 말을 창구가 옮김 · dev: 개발자가 직접 · script: 각본 PO (사람 개입 수에 넣지 않음) */
+    by: z.enum(["po", "dev", "script"]).optional(),
+    channel: z.enum(["chat", "terminal"]).optional(),
+    /** 작업 노드의 승인을 되돌릴 때 고칠 노드 (N15 → N11·N13·N14·N15) */
+    to: Node.optional(),
+  }),
+  /** 사람 승인이나 스토리를 기다리기 시작함 (조각 2). 기다리는 동안 지휘 프로그램은 돌지 않는다 */
+  z.strictObject({ type: z.literal("await_human"), ...Common, node: Node, task: Task.nullable(), feature: Feature.optional(), reason: z.enum(["review", "story", "not_ready"]) }),
+  /** 검토 페이지를 만들거나(built) 게시함(published) (조각 2) */
+  z.strictObject({
+    type: z.literal("review"),
+    ...Common,
+    id: Id("RV"),
+    action: z.enum(["built", "published"]),
+    node: Node,
+    task: Task.nullable(),
+    feature: Feature,
+    files: z.array(FileHash).default([]),
+    hash: z.string().min(1),
+    url: z.string().url().optional(),
+  }),
+  /** 스테이지 패킷: 승인된 산출물의 해시와 ID를 고정함 (설계 ②, 조각 2) */
+  z.strictObject({
+    type: z.literal("packet"),
+    ...Common,
+    id: Id("PK"),
+    boundary: z.enum(PACKETS),
+    feature: Feature,
+    files: z.array(FileHash).min(1),
+    refs: z.array(z.string()).default([]),
+    review: Id("RV"),
   }),
   z.strictObject({ type: z.literal("commit"), ...Common, sha: z.string().regex(/^[0-9a-f]{7,40}$/), node: Node, task: Task.nullable() }),
   /** paused: 작업 수 한도로 잠시 멈춤 (그대로 다시 돌리면 됨) · stopped: 사람이 고치고 승인해야 다시 감 · error: 하네스 오류 */
@@ -179,9 +220,11 @@ const ID_FIELDS: Record<string, (e: LedgerEvent) => string | undefined> = {
   GR: (e) => (e.type === "gate_run" ? e.id : undefined),
   HR: (e) => (e.type === "hook_run" ? e.id : undefined),
   HU: (e) => (e.type === "human" ? e.id : undefined),
+  RV: (e) => (e.type === "review" ? e.id : undefined),
+  PK: (e) => (e.type === "packet" ? e.id : undefined),
 };
 
-/** 원장에서 이 종류의 다음 ID를 정한다 (RUN, NR, GR, HR, HU). */
+/** 원장에서 이 종류의 다음 ID를 정한다 (RUN, NR, GR, HR, HU, RV, PK). */
 export function nextId(events: LedgerEvent[], prefix: keyof typeof ID_FIELDS): string {
   const pick = ID_FIELDS[prefix];
   let max = 0;

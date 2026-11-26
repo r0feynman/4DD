@@ -9,7 +9,7 @@
 
 import { appendEvent, nextId, readEvents } from "./ledger.ts";
 import { bashViolation, canSessionWrite } from "./lock.ts";
-import { getNode, loadNodes, type NodeSet } from "./nodes.ts";
+import { getNode, loadNodes, nodeFor, type NodeSet } from "./nodes.ts";
 
 export type Tool = "claude" | "codex";
 
@@ -75,7 +75,7 @@ export function runHook(tool: Tool, payload: Record<string, unknown>, env: NodeJ
   const call = parseHookPayload(tool, payload);
   const root = env.FOURDD_ROOT ?? call.cwd;
   if (!nodeId || !root) return { exitCode: 0, message: "" };
-  const node = getNode(nodes, nodeId);
+  const node = nodeFor(nodes, nodeId, env.FOURDD_FEATURE);
   const record = (check: "path" | "bash" | "session", target: string | undefined, result: "allowed" | "blocked") => {
     const { events } = readEvents(root);
     appendEvent(root, nodes.version, {

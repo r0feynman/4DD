@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DIR, readEvents, type LedgerEvent } from "./ledger.ts";
 
 export const STATE_FILE = "state.json";
-export const STATE_SCHEMA_VERSION = 1;
+export const STATE_SCHEMA_VERSION = 2;
 export const statePath = (root: string) => join(root, DIR, STATE_FILE);
 
 export type Status = "idle" | "running" | "waiting_human" | "done" | "stopped";
@@ -27,6 +27,8 @@ export interface State {
   node_run: string | null;
   /** 작업 세션 ID. 같은 작업 안에서는 이어 쓰고, 작업이 바뀌면 비운다 */
   session: string | null;
+  /** Stage 0·1을 도는 기능 (스토리를 받았고 패킷 1 → 2가 아직 없음). 작업이 없는 동안의 일감 (조각 2) */
+  planning: string | null;
   /** 지금 작업에서 노드별 연속 실패 수. 통과하면 0 */
   fails: Record<string, number>;
   /** 지금 작업의 되돌림 총합 */
@@ -54,6 +56,7 @@ export function initialState(): State {
     node: null,
     node_run: null,
     session: null,
+    planning: null,
     fails: {},
     task_backtracks: 0,
     waiting: null,
@@ -75,6 +78,13 @@ function enterTask(s: State, task: string): void {
   s.last_gate = null;
 }
 
+/** Stage 0·1의 노드 기록 (작업 없이 기능으로 묶임) */
+function enterPlanning(s: State, feature: string): void {
+  if (s.planning === feature && s.task === null) return;
+  s.planning = feature;
+  s.feature = feature;
+}
+
 /** 이벤트 하나를 상태에 접는다. 원래 상태는 바꾸지 않는다. */
 export function reduce(prev: State, e: LedgerEvent): State {
   const s: State = structuredClone(prev);
@@ -91,12 +101,14 @@ export function reduce(prev: State, e: LedgerEvent): State {
       break;
     case "node_start":
       if (e.task) enterTask(s, e.task);
+      else if (e.feature) enterPlanning(s, e.feature);
       s.node = e.node;
       s.node_run = e.id;
       if (e.session) s.session = e.session;
       break;
     case "node_end":
       if (e.task) enterTask(s, e.task);
+      else if (e.feature) enterPlanning(s, e.feature);
       if (e.session) s.session = e.session;
       if (e.result === "fail") {
         s.fails[e.node] = (s.fails[e.node] ?? 0) + 1;
@@ -122,9 +134,41 @@ export function reduce(prev: State, e: LedgerEvent): State {
         s.waiting = { node: e.node, task: s.task, reason: e.cause };
       }
       break;
+    case "await_human":
+      s.status = "waiting_human";
+      s.waiting = { node: e.node, task: e.task, reason: e.reason };
+      break;
+    case "packet":
+      // 패킷 1 → 2가 남으면 그 기능의 Stage 0·1이 끝난다. 작업 없이 돌던 일감을 닫는다.
+      if (e.boundary === "1-2" && s.planning === e.feature) {
+        s.planning = null;
+        s.session = null;
+        s.fails = {};
+        s.task_backtracks = 0;
+        s.last_gate = null;
+      }
+      break;
+    case "review":
+      break;
     case "human":
+      if (e.kind === "story") {
+        // 새 스토리: 그 기능의 Stage 0을 시작한다 (작업 단위 값은 새로)
+        s.planning = e.feature ?? s.planning;
+        s.feature = e.feature ?? s.feature;
+        s.task = null;
+        s.node = e.node;
+        s.session = null;
+        s.fails = {};
+        s.task_backtracks = 0;
+        s.last_gate = null;
+        s.status = "idle";
+        s.waiting = null;
+        break;
+      }
       if (e.kind === "hold") {
         if (e.task && !s.held_tasks.includes(e.task)) s.held_tasks.push(e.task);
+        // 작업 없이 Stage 0·1을 돌던 기능을 보류하면 그 스토리를 내려놓는다
+        if (!e.task) s.planning = null;
         s.task = null;
         s.node = null;
         s.node_run = null;

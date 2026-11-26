@@ -94,6 +94,20 @@ describe("노드별 관문", () => {
     git(root, ["checkout", "--", "tests/unit/math.test.ts"]);
   });
 
+  it("N23: 스펙을 고치러 갔다 다시 승인받고 돌아온 작업이면, 기존 단위 테스트를 새 스펙에 맞게 고친 것도 받는다", () => {
+    // 2026-11-26 실제 실행: 아이디 예시가 lee → lee01로 바뀌었는데 앞 작업의 단위 테스트가 lee를 써서 N23이 3번 막힘
+    expect(gate("N23").passed).toBe(false); // 구현이 있어 통과하고 새 테스트도 없다
+    appendEvent(root, H, { type: "human", id: "HU90", node: "N04", task: "T1", kind: "approve", review: "RV9" });
+    const untouched = gate("N23");
+    expect(untouched.runs.every((r) => r.result === "pass")).toBe(true); // 실패를 요구하지 않는다
+    expect(untouched.checks.find((c) => c.name === "new_tests")).toMatchObject({ ok: false }); // 그래도 아무것도 안 고치면 안 된다
+    put("tests/unit/math.test.ts", FAILING_UNIT.replace("add(2, 3)).toBe(5)", "add(2, 2)).toBe(4)"));
+    const fixed = gate("N23");
+    expect(fixed.passed).toBe(true);
+    expect(fixed.checks.find((c) => c.name === "new_tests")?.detail).toContain("기존 단위 테스트를 새 스펙에 맞게");
+    git(root, ["checkout", "--", "tests/unit/math.test.ts"]);
+  });
+
   it("N26: 인수 테스트가 통과하면 통과", () => {
     expect(gate("N26").passed).toBe(true);
   });
