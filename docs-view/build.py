@@ -31,6 +31,7 @@ PAGES = [
     ("slices.html", "구현 조각"),
     ("slice1.html", "조각 1"),
     ("slice2.html", "조각 2"),
+    ("slice3.html", "조각 3"),
     ("glossary.html", "용어집"),
     ("changes.html", "변경 기록"),
 ]
@@ -864,7 +865,7 @@ def page_harness(ctx):
 
 # ---------------------------------------------------------------- 페이지: 첫 구현 조각
 
-WHO = {"하네스": "w-h", "작업 세션": "w-w", "리뷰 세션": "w-r", "사람": "w-p"}
+WHO = {"하네스": "w-h", "작업 세션": "w-w", "리뷰 세션": "w-r", "사람": "w-p", "디자인 세션": "w-d", "분류": "w-r"}
 
 
 # 구현 조각 명세(harness-slice*.md)는 같은 제목과 표 모양으로 씁니다. 아래 함수들이 두 페이지에서 같은 그림을 만듭니다.
@@ -918,8 +919,10 @@ def slice_nodes(ctx, sd):
         writes = r["고칠 수 있는 곳"].strip()
         wchips = "".join(f'<code class="wr">{esc(w.strip(" `"))}</code>' for w in writes.split(",")) if writes not in ("—", "") and "`" in writes else f'<span class="wr-none">{"고치는 곳 없음" if writes in ("—", "") else inline(writes)}</span>'
         fail = r["실패하면"].strip()
+        # 노드 범위(N23~N25)는 칩 두 개로
+        nchips = '<span class="who-sep" aria-hidden="true">~</span>'.join(idchip(ctx, x) for x in nid.split("~"))
         nrows.append(
-            f'<div class="nrow"><div class="nhead">{idchip(ctx, nid)}{who_chips(r["누가"].strip())}</div>'
+            f'<div class="nrow"><div class="nhead">{nchips}{who_chips(r["누가"].strip())}</div>'
             f'<div class="nbody"><div class="nwr">{wchips}</div><div class="npass"><i>통과</i>{chipify(ctx, r["통과 조건"])}</div>'
             f'{"" if fail in ("—", "") else f"<div class=nfail><i>실패</i>{chipify(ctx, fail)}</div>"}</div></div>'
         )
@@ -982,8 +985,11 @@ def slice_steps(ctx, sd):
 
 
 def slice_done(ctx, sd):
-    done = [l[6:].strip() for l in section(sd, "## 완료 기준").splitlines() if l.startswith("- [ ] ")]
-    return len(done), "".join(f'<li><span class="box" aria-hidden="true"></span><span>{chipify(ctx, d)}</span></li>' for d in done)
+    # 체크한 것(- [x])은 채운 상자로 그린다
+    done = [(l[3] == "x", l[6:].strip()) for l in section(sd, "## 완료 기준").splitlines() if l.startswith(("- [ ] ", "- [x] "))]
+    return len(done), "".join(
+        f'<li><span class="box{" on" if ok else ""}" aria-label="{"확인함" if ok else "남음"}"></span><span>{chipify(ctx, d)}</span></li>' for ok, d in done
+    )
 
 
 def split_top(text, sep=", "):
@@ -1066,7 +1072,7 @@ def bold_bullets_nested(text):
 
 def verify_card(ctx, k, v, subs):
     """「구현하며 확인할 것」 카드. 제목 끝의 (확인함), (남음), (확인함, 날짜)를 칩으로, 들여 쓴 줄은 라벨 붙은 줄로."""
-    st = re.search(r" [(](확인함|남음)(?:, ?([^)]*))?[)]$", k)
+    st = re.search(r" [(](확인함|확인 중|남음)(?:, ?([^)]*))?[)]$", k)
     kind = st.group(1) if st else ("찾아 고친 것" if "찾아 고친" in k else "관찰")
     title = k[: st.start()] if st else k
     when = f' <span class="when">{esc(st.group(2))}</span>' if st and st.group(2) else ""
@@ -1366,6 +1372,168 @@ def page_slice2(ctx):
     return subpage(ctx, "slice2.html", "4DD 조각 2", body)
 
 
+def page_slice3(ctx):
+    rel = "docs/harness-slice3.md"
+    sd = read(rel)
+    lead = slice_intro(sd, "조각 3")
+    # 정한 것: 날짜가 붙은 줄은 오너 결정(노랑), 나머지는 명세의 제안(점선)
+    decided = "".join(
+        f'<div class="card top {"c-human" if "(20" in r["항목"] else "c-plain prop"}"><span class="k">{"오너 결정" if "(20" in r["항목"] else "제안 · 승인 전"}</span>'
+        f'<span class="t">{inline(re.sub(r" [(]20[0-9-]+[)]$", "", r["항목"]))}</span><span class="d">{chipify(ctx, r["결정"])}</span></div>'
+        for r in first_table(sd, "## 정한 것")
+    )
+    n_owner = sum(1 for r in first_table(sd, "## 정한 것") if "(20" in r["항목"])
+    n_prop = len(first_table(sd, "## 정한 것")) - n_owner
+    scope_html = slice_scope(ctx, sd)
+    parts_html = slice_parts(ctx, sd, "부림")
+    nrows = slice_nodes(ctx, sd)
+    n_fig = sum(1 for r in first_table(sd, "## 노드마다 누가 무엇을") if any(ctx["by_id"].get(x.strip(), {}).get("method") == "fig" for x in r["노드"].split("~")))
+    node_notes = bullet_cards(ctx, section(sd, "## 노드마다 누가 무엇을").split("\n### ", 1)[0], "노드 규칙")
+    files = bullet_cards(ctx, section(sd, "### 파일 형식"), "파일 형식")
+    yaml_cards = bullet_cards(ctx, section(sd, "### `nodes.yaml`에 더하는 것"), "nodes.yaml")
+    instr_cards = bullet_cards(ctx, section(sd, "### 노드 지시문"), "노드 지시문")
+
+    dsteps, key_name = slice_pipeline(ctx, sd, "## 디자인이 흐르는 길")
+
+    # Figma 도구 행렬: 노드마다 쓰기·읽기 점
+    fsec = section(sd, "## Figma를 쓰는 세션")
+    frows = first_table(sd, "## Figma를 쓰는 세션")
+    fm = '<div class="fm-n"></div><div class="fm-h">쓰기</div><div class="fm-h">읽기</div>' + "".join(
+        f'<div class="fm-n">{chipify(ctx, r["노드"])}<small>{inline(r["이유"])}</small></div>'
+        f'<div class="fm-c"><span class="dot{" fig-on" if "쓰기" in r["Figma 도구"] else ""}" aria-label="쓰기 {"됨" if "쓰기" in r["Figma 도구"] else "안 됨"}"></span></div>'
+        f'<div class="fm-c"><span class="dot{" on" if ("읽기" in r["Figma 도구"]) else ""}" aria-label="읽기 {"됨" if "읽기" in r["Figma 도구"] else "안 됨"}"></span></div>'
+        for r in frows
+    )
+    fnotes = bullet_cards(ctx, fsec, "도구별")
+
+    visual = bullet_cards(ctx, section(sd, "## 화면 비교 (N26F)"), "화면 비교")
+    fx_sec = section(sd, "## 시험 프로젝트")
+    fixture = bullet_cards(ctx, fx_sec, "시험 프로젝트")
+    tree = re.search(r"```\n(.*?)```", fx_sec, flags=re.S)
+    cmds_h, cmds_m = slice_cmds(sd)
+    events = slice_events(sd)
+    ev_intro = next((p.strip() for p in section(sd, "## 원장 이벤트").split("\n\n") if p.strip() and not p.lstrip().startswith("|")), "")
+    queries = "".join(
+        f'<div class="card top c-plain"><span class="k">질의</span><span class="t">{inline(r["질의"])}</span><span class="d">{inline(r["무엇을 보나"])}</span></div>'
+        for r in first_table(sd, "## 보고서에 더하는 것")
+    )
+    human = slice_human(sd)
+    n_steps, steps_html, order_note = slice_steps(ctx, sd)
+    n_done, done_html = slice_done(ctx, sd)
+    nexts = slice_nexts(ctx, 3)
+    verify = "".join(verify_card(ctx, k, v, subs) for k, v, subs in bold_bullets_nested(section(sd, "## 구현하며 확인할 것")))
+    # 자기 검토: 찾은 문제(차수별)와 남은 위험
+    review = ""
+    for title in ("1차 검토에서 찾은 문제와 바꾼 점", "2차 검토에서 찾은 문제와 바꾼 점"):
+        review += f'<h3 class="sub">{esc(title)}</h3><div class="cards onto-cards">{bullet_cards(ctx, section(sd, "### " + title), title[:2] + " 검토")}</div>'
+    risks = "".join(f"<li>{chipify(ctx, l[2:].strip())}</li>" for l in section(sd, "### 남은 위험").splitlines() if l.startswith("- "))
+
+    body = f"""
+<header>
+  <h1>조각 3: 모바일·웹과 Figma</h1>
+  <p class="lead">{inline(lead)}</p>
+  <div class="stats">
+    <div class="stat"><b>{len(nrows)}</b><span>노드 줄</span></div>
+    <div class="stat"><b>{n_fig}</b><span>Figma 노드</span></div>
+    <div class="stat"><b>{n_owner}·{n_prop}</b><span>오너 결정·제안</span></div>
+    <div class="stat"><b>{n_steps}</b><span>구현 단계</span></div>
+    <div class="stat"><b>{n_done}</b><span>완료 기준</span></div>
+  </div>
+</header>
+<section>
+  <h2>정한 것</h2>
+  <p>노랑은 오너가 정한 것, 점선은 이 명세의 제안(승인 전)입니다.</p>
+  <div class="cards onto-cards">{decided}</div>
+</section>
+<section>
+  <h2>범위</h2>
+  <div class="scope">{scope_html}</div>
+</section>
+<section>
+  <h2>디자인이 흐르는 길</h2>
+  <p>굵은 테두리의 {esc(key_name)}이 결정적인 자리입니다. 그 뒤로는 Figma를 누가 고쳐도 기준이 바뀌지 않습니다.</p>
+  <div class="pipeline">{dsteps}</div>
+</section>
+<section>
+  <h2>구조</h2>
+  <div class="structure">{parts_html}</div>
+</section>
+<section>
+  <h2>노드마다 누가 무엇을</h2>
+  <p>다섯 가지 모양이 누가 하는지를 나타냅니다: <span class="who w-p">사람</span> <span class="who w-h">하네스</span> <span class="who w-w">작업 세션</span> <span class="who w-d">디자인 세션</span> <span class="who w-r">리뷰 세션</span></p>
+  <div class="nflow">{"".join(nrows)}</div>
+  <div class="cards onto-cards">{node_notes}</div>
+  <h3 class="sub">파일 형식</h3>
+  <div class="cards onto-cards">{files}</div>
+  <h3 class="sub">nodes.yaml에 더하는 것</h3>
+  <div class="cards onto-cards">{yaml_cards}</div>
+  <h3 class="sub">노드 지시문</h3>
+  <div class="cards onto-cards">{instr_cards}</div>
+</section>
+<section>
+  <h2>Figma를 쓰는 세션</h2>
+  <p>분홍 점은 Figma에 쓸 수 있는 노드, 검은 점은 읽을 수 있는 노드입니다. 구현 세션은 쓰기 점이 없습니다.</p>
+  <div class="fmatrix">{fm}</div>
+  <div class="cards onto-cards">{fnotes}</div>
+</section>
+<section>
+  <h2>화면 비교 (N26F)</h2>
+  <div class="cards onto-cards">{visual}</div>
+</section>
+<section>
+  <h2>시험 프로젝트</h2>
+  <div class="cards onto-cards">{fixture}</div>
+  {f'<pre class="tree">{esc(tree.group(1).rstrip())}</pre>' if tree else ""}
+</section>
+<section>
+  <h2><code>4dd</code> 명령</h2>
+  <h3 class="sub">사람과 PO 창구가 부르는 것</h3>
+  <div class="cmds">{"".join(cmds_h)}</div>
+  <h3 class="sub">지휘 프로그램, 관문이 부르는 것</h3>
+  <div class="cmds">{"".join(cmds_m)}</div>
+</section>
+<section>
+  <h2>원장 이벤트</h2>
+  <p>{inline(ev_intro)}</p>
+  <div class="evs">{events}</div>
+</section>
+<section>
+  <h2>보고서에 더하는 것</h2>
+  <div class="cards onto-cards">{queries}</div>
+</section>
+<section>
+  <h2>사람이 하는 일</h2>
+  <div class="less">{human}</div>
+</section>
+<section>
+  <h2>구현 순서</h2>
+  <div class="lsteps">{steps_html}</div>
+  <p class="route-note">{inline(order_note)}</p>
+</section>
+<section>
+  <h2>완료 기준</h2>
+  <ul class="chk">{done_html}</ul>
+</section>
+<section>
+  <h2>구현하며 확인할 것</h2>
+  <div class="cards onto-cards">{verify}</div>
+</section>
+<section>
+  <h2>자기 검토</h2>
+  {review}
+  <h3 class="sub">남은 위험</h3>
+  <ul class="chk risks">{risks}</ul>
+</section>
+<section>
+  <h2>다음 조각</h2>
+  <div class="lsteps">{nexts}</div>
+  <p class="route-note">전체 조각과 순서는 <a href="slices.html">구현 조각</a> 페이지 한 곳에 있습니다.</p>
+</section>
+{source_block(rel)}
+"""
+    return subpage(ctx, "slice3.html", "4DD 조각 3", body)
+
+
 def spec_link(r):
     if r["page"]:
         return f'<a class="sc-link" href="{r["page"]}">명세 보기 →</a>'
@@ -1602,7 +1770,8 @@ def page_index(ctx):
       <a class="card top c-sdd" href="harness.html"><span class="k">하네스 설계</span><span class="t">결정 {wf["decisions"]}건 · 열린 결정 {wf["open"]}건</span><span class="d">에이전트가 이 절차를 따르게 하는 구조</span></a>
       <a class="card top c-scrum" href="slices.html"><span class="k">구현 조각</span><span class="t">조각 {wf["slices"]}개 · 끝난 조각 {wf["slices_done"]}개</span><span class="d">하네스를 처음부터 끝까지 도는 작은 범위로 잘라 차례로 만듦</span></a>
       <a class="card top c-tdd" href="slice1.html"><span class="k">첫 구현 조각</span><span class="t">구현 {wf["slice_steps"]}단계 · 완료 기준 {wf["slice_done"]}개</span><span class="d">백엔드 기능 하나가 Stage 2를 사람 손 없이 도는 것부터</span></a>
-      <a class="card top c-human" href="slice2.html"><span class="k">조각 2 · 명세</span><span class="t">구현 {wf["slice2_steps"]}단계 · 사람이 하는 노드 {wf["slice2_human"]}개</span><span class="d">PO가 채팅으로 스토리를 적고 검토 페이지에서 승인하면 Stage 0부터 끝까지</span></a>
+      <a class="card top c-human" href="slice2.html"><span class="k">조각 2 · 끝</span><span class="t">구현 {wf["slice2_steps"]}단계 · 사람이 하는 노드 {wf["slice2_human"]}개</span><span class="d">PO가 채팅으로 스토리를 적고 검토 페이지에서 승인하면 Stage 0부터 끝까지</span></a>
+      <a class="card top c-fig" href="slice3.html"><span class="k">조각 3 · 명세</span><span class="t">구현 {wf["slice3_steps"]}단계 · Figma 노드 4개</span><span class="d">Figma 디자인부터 앱 구현과 화면 비교까지, Android와 웹에서</span></a>
       <a class="card top c-scrum" href="glossary.html"><span class="k">용어집</span><span class="t">용어 {wf["terms"]}개</span><span class="d">노드 ID 읽는 법, 스테이지, 용어</span></a>
       <a class="card top c-fig" href="changes.html"><span class="k">변경 기록</span><span class="t">{wf["changes"]}건 · 최근 {esc(wf["latest"])}</span><span class="d">언제 무엇이 바뀌었나</span></a>
     </div>
@@ -1653,6 +1822,7 @@ def make_context():
         "slice_steps": len(first_table(read("docs/harness-slice1.md"), "## 구현 순서")),
         "slice_done": sum(1 for l in section(read("docs/harness-slice1.md"), "## 완료 기준").splitlines() if l.startswith("- [ ] ")),
         "slice2_steps": len(first_table(read("docs/harness-slice2.md"), "## 구현 순서")),
+        "slice3_steps": len(first_table(read("docs/harness-slice3.md"), "## 구현 순서")),
         "slices": len(load_slices()["rows"]),
         "slices_done": sum(1 for r in load_slices()["rows"] if r["status"] == "끝"),
         "slice2_human": sum(1 for r in first_table(read("docs/harness-slice2.md"), "## 노드마다 누가 무엇을") if "사람" in r["누가"]),
@@ -1673,6 +1843,7 @@ def build():
         "slices.html": page_slices(ctx),
         "slice1.html": page_slice1(ctx),
         "slice2.html": page_slice2(ctx),
+        "slice3.html": page_slice3(ctx),
         "glossary.html": page_glossary(ctx),
         "changes.html": page_changes(ctx),
     }

@@ -549,3 +549,15 @@ details.source[open] summary { margin-bottom: 12px; }
 @media (max-width: 520px) {
   .vrow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+
+/* 조각 3: 디자인 세션(Figma 분홍), 체크한 완료 기준, Figma 도구 행렬 */
+.who.w-d { border: 1px solid var(--fig); color: var(--fig); background: var(--fig-bg); }
+.chk .box.on { background: var(--fg); border-color: var(--fg); position: relative; }
+.chk .box.on::after { content: ""; position: absolute; left: 4px; top: 0px; width: 4px; height: 9px; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.fmatrix { display: grid; grid-template-columns: minmax(0, 1fr) 52px 52px; gap: 6px 8px; align-items: center; max-width: 620px; }
+.fmatrix .fm-h { font-size: 12px; font-weight: 700; color: var(--muted); text-align: center; }
+.fmatrix .fm-n { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; font-size: 13px; }
+.fmatrix .fm-n small { color: var(--muted); width: 100%; }
+.fmatrix .fm-c { display: flex; justify-content: center; }
+.dot.fig-on { background: var(--fig); border-color: var(--fig); }
+.tree { font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: pre; }
