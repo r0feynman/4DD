@@ -1050,6 +1050,41 @@ def slice_nexts(ctx, current):
     )
 
 
+def bold_bullets_nested(text):
+    """'- **이름:** 내용'과 그 아래 들여 쓴 '  - 줄'을 (이름, 내용, [줄])로."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^-\s+\*\*(.+?)\*\*\s*(.*)$", line)
+        if m:
+            out.append((m.group(1).rstrip(":："), m.group(2).strip(), []))
+            continue
+        s = re.match(r"^\s{2,}-\s+(.*)$", line)
+        if s and out:
+            out[-1][2].append(s.group(1).strip())
+    return out
+
+
+def verify_card(ctx, k, v, subs):
+    """「구현하며 확인할 것」 카드. 제목 끝의 (확인함), (남음), (확인함, 날짜)를 칩으로, 들여 쓴 줄은 라벨 붙은 줄로."""
+    st = re.search(r" [(](확인함|남음)(?:, ?([^)]*))?[)]$", k)
+    kind = st.group(1) if st else ("찾아 고친 것" if "찾아 고친" in k else "관찰")
+    title = k[: st.start()] if st else k
+    when = f' <span class="when">{esc(st.group(2))}</span>' if st and st.group(2) else ""
+    rows = ""
+    for s in subs:
+        label, sep, rest = s.partition(": ")
+        if sep and len(label) <= 24:
+            rows += f'<div class="vrow"><b>{inline(label)}</b><span>{chipify(ctx, rest)}</span></div>'
+        else:
+            rows += f'<div class="vrow"><b></b><span>{chipify(ctx, s)}</span></div>'
+    return (
+        f'<div class="card top {"c-plain un" if kind == "남음" else "c-plain"}{" wide" if subs else ""}"><span class="k">{kind}</span>'
+        f'<span class="t">{inline(title)}{when}</span><span class="d">{chipify(ctx, v)}</span>'
+        + (f'<div class="vrows">{rows}</div>' if rows else "")
+        + "</div>"
+    )
+
+
 def bullet_cards(ctx, text, label, cls_for=lambda k: "c-plain"):
     return "".join(
         f'<div class="card top {cls_for(k)}"><span class="k">{esc(label)}</span><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
@@ -1225,11 +1260,7 @@ def page_slice2(ctx):
     cmds_n = len(cmds_h) + len(cmds_m)
     verify = ""
     if "## 구현하며 확인할 것" in sd:
-        verify = "".join(
-            f'<div class="card top {"c-plain un" if "(남음)" in k else "c-plain"}"><span class="k">{"남음" if "(남음)" in k else "확인함" if "(확인함)" in k else "찾아 고친 것" if "찾아 고친" in k else "관찰"}</span>'
-            f'<span class="t">{inline(re.sub(r" [(](확인함|남음)[)]$", "", k))}</span><span class="d">{chipify(ctx, v)}</span></div>'
-            for k, v in bold_bullets(section(sd, "## 구현하며 확인할 것"))
-        )
+        verify = "".join(verify_card(ctx, k, v, subs) for k, v, subs in bold_bullets_nested(section(sd, "## 구현하며 확인할 것")))
 
     body = f"""
 <header>

@@ -1,16 +1,16 @@
 {
   "artifact_url": "https://claude.ai/artifact/QvwmRXisABunc6DLTiaegf",
-  "source_hash": "10087705fb8d36aecc3c307de032e4170630f44900de325ba55c80851b7dc9c8",
-  "published_at": "2026-11-25T20:52:24",
-  "artifact_version": "34 (1795607543-30d9)",
+  "source_hash": "27eb0988bc7960e560f224bfd932c3f8806d3470c5e9a1cf7c37f63f849c07b3",
+  "published_at": "2026-11-26T10:19:21",
+  "artifact_version": "35 (1795655961-f0b5)",
   "pages": {
-    "index.html": "de92c32069af64c2f21c3681ef7c7af318536e37b5d897d5a2e4462be08ae3db",
-    "workflow.html": "e4c33d844b286efd5a8459fe40c5f345ee8215a3834ba672013f868f7194acfb",
-    "harness.html": "faeb94d157e81e35f9e8268af606ef744802548dcf190b205c43db8a3b36ac06",
-    "slices.html": "f70039d6a30ae5c85d2fb9769972af2878dad5faae966d98e3788ee4b5d6636d",
-    "slice1.html": "f158898d89e388b72f5f37d4304a6e59ffb2e4c9e7100c48d49eff6146f2b4bf",
-    "slice2.html": "7bffa0444645be76cb66c25d0c933190e700d9c9cffee63d92b40bfbd2bfb697",
-    "glossary.html": "d941bc1ed24459a08a3796e627cfcdb267b6089ef5e7fee8572b0c3588de050b",
-    "changes.html": "1bc7116bdb892c1c5dd1c2f9b14284890d1fa0aab56aadc085ac61d7c24dd22e"
+    "index.html": "05e16bd5859468dbb4f3d34ac73dba30060d316966e3113c00b17ebb8c9e07a1",
+    "workflow.html": "e678d923edca4cd0b43d9e6e3fa9697ea18327d87ef323faa2994513be4f9aab",
+    "harness.html": "1b3ad4c5a745979459b8d86eaefa7c3e1f1d6cfa38ca851c52e8ba71278e9a41",
+    "slices.html": "169d4752b39523708bcbe36494f73fc9513bf1f8e082fb0f1a2831d72e147523",
+    "slice1.html": "f9ebf04c0c41b62b7383f7d41790d0f357a0beb192daf843fa478de18e54002b",
+    "slice2.html": "aca5d279ec72cc6a44c85f29a547f6f6aa4632da6c8575b53038c54d04815dbc",
+    "glossary.html": "0b81d92c32340050c765d8f1fba4d6c76abb75d525742c257180415b1441b386",
+    "changes.html": "d30d9b0e6e86e8082ea2c2b66b16c76d51fa74b10597ff9562d4d9d781500c8e"
   }
 }
