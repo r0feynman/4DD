@@ -173,6 +173,7 @@ N23:
   gate:
     run: "{commands.unit}"
     expect: fail
+    reentry: spec_changed   # 스펙을 고치러 갔다 돌아온 작업이면, 기존 단위 테스트를 새 스펙에 맞게 고친 것도 받음 (2026-11-26 실제 실행)
     checks: [new_tests]
 
 N24:

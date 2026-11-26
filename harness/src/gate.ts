@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import type { Config } from "./config.ts";
 import { appendEvent, DIR, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
+import { changedFiles } from "./git.ts";
 import { baselineDiff } from "./lock.ts";
 import { getNode, GATE_CHECKS, type Cause, type NodeSet } from "./nodes.ts";
 import { DESIGN_SECTIONS, featureIds, featurePath, lastPacket, openQuestions, packetDrift, readSprint, readText, sections, SPEC_SECTIONS, SPRINT_FILE } from "./plan.ts";
@@ -144,7 +145,17 @@ function record(ctx: GateContext, command: string, exit: number, result: "pass" 
   return { id, command, exit, result, flakyRerun, log };
 }
 
-function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[]; files: string[] }, events: LedgerEvent[]): GateCheckResult {
+/**
+ * 이 작업이 스펙을 고치러 갔다가 N04에서 다시 승인받았고, 그 뒤로 이 노드가 아직 통과하지 않았는가.
+ * 스펙이 바뀌면 앞 작업이 쓴 단위 테스트가 옛 예시를 쓰고 있을 수 있다 (예: 아이디 lee → lee01).
+ */
+export function specReapproved(events: LedgerEvent[], task: string, nodeId: string): boolean {
+  const at = events.findLastIndex((e) => e.type === "human" && e.kind === "approve" && !!e.review && e.task === task && e.node === "N04");
+  if (at < 0) return false;
+  return !events.slice(at + 1).some((e) => e.type === "node_end" && e.task === task && e.node === nodeId && e.result === "pass");
+}
+
+function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[]; files: string[] }, events: LedgerEvent[], specChanged = false): GateCheckResult {
   const { root } = ctx;
   const startRef = taskStartRef(events, ctx.task);
   switch (name) {
@@ -160,6 +171,9 @@ function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[];
     case "new_tests": {
       const before = countAtRef(root, "HEAD", "tests/unit").tests;
       const now = countWorktree(root, "tests/unit").tests;
+      if (specChanged && now >= before && changedFiles(root).some((f) => f.startsWith("tests/unit/"))) {
+        return { name, ok: true, detail: `스펙이 바뀌어 돌아온 작업이라, 기존 단위 테스트를 새 스펙에 맞게 고친 것을 받았습니다 (${before}개 → ${now}개)` };
+      }
       return now > before
         ? { name, ok: true, detail: `단위 테스트가 ${before}개에서 ${now}개로 늘었습니다` }
         : { name, ok: false, detail: `새 단위 테스트가 없습니다 (노드 시작 때 ${before}개, 지금 ${now}개)` };
@@ -316,10 +330,12 @@ export function runGate(ctx: GateContext): GateOutcome {
   }
 
   // 구현이 이미 있는 작업으로 다시 돌아왔으면(test_flaky를 고치러 오거나 스펙을 고친 뒤) "처음엔 실패"를 요구할 수 없다.
+  const specChanged = gate.reentry === "spec_changed" && !!ctx.task && specReapproved(readEvents(ctx.root).events, ctx.task, ctx.nodeId);
   const reentry =
-    gate.reentry === "any" &&
-    !!ctx.task &&
-    readEvents(ctx.root).events.some((e) => e.type === "node_end" && e.task === ctx.task && e.node === "N24" && e.result === "pass");
+    specChanged ||
+    (gate.reentry === "any" &&
+      !!ctx.task &&
+      readEvents(ctx.root).events.some((e) => e.type === "node_end" && e.task === ctx.task && e.node === "N24" && e.result === "pass"));
   const runs: GateRunResult[] = [];
   let cause: Cause | undefined;
   for (const template of commands) {
@@ -342,7 +358,7 @@ export function runGate(ctx: GateContext): GateOutcome {
   }
 
   const { events } = readEvents(ctx.root);
-  const checks = (gate.checks ?? []).map((name) => runCheck(name, ctx, scenarios, events));
+  const checks = (gate.checks ?? []).map((name) => runCheck(name, ctx, scenarios, events, specChanged));
 
   const lastRuns = runs.filter((r, i) => !(runs[i + 1]?.flakyRerun && runs[i + 1].command === r.command));
   const runsOk = lastRuns.every((r) => r.result === "pass") && cause === undefined;

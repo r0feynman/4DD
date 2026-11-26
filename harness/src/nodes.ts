@@ -65,8 +65,12 @@ const GateSchema = z
     run: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
     expect: z.enum(["pass", "fail"]).optional(),
     flaky_rerun: z.boolean().optional(),
-    /** any: 그 작업에서 N24(구현)가 이미 통과했으면 명령 결과를 따지지 않는다 (구현이 있는 작업으로 다시 돌아온 경우) */
-    reentry: z.enum(["same", "any"]).optional(),
+    /**
+     * any: 그 작업에서 N24(구현)가 이미 통과했으면 명령 결과를 따지지 않는다 (구현이 있는 작업으로 다시 돌아온 경우)
+     * spec_changed: 그 작업이 스펙을 고치러 갔다 N04에서 다시 승인받고 돌아온 뒤 이 노드가 아직 통과하지 않았으면,
+     *   명령 결과를 따지지 않고, 새 테스트 대신 기존 테스트를 새 스펙에 맞게 고친 것도 받는다 (N23, 2026-11-26 실제 실행)
+     */
+    reentry: z.enum(["same", "any", "spec_changed"]).optional(),
     /** expect: fail인데 명령이 이미 통과하고 다른 검사도 통과하면 「이미 충족」으로 보고 이 노드로 간다 (앞 작업이 이미 구현한 경우) */
     already_met: NodeId.optional(),
     checks: z.array(z.enum(GATE_CHECKS)).optional(),
