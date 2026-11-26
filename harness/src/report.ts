@@ -214,9 +214,15 @@ function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet):
     const planFails: Record<string, number> = {};
     for (const e of ends) if (mine(e) && (e.node === "N13" || e.node === "N14") && e.result === "fail") planFails[e.node] = (planFails[e.node] ?? 0) + 1;
     const returns: Record<string, number> = {};
+    const BACK = ["spec_ambiguous", "spec_missing_state", "arch_wrong"];
     for (const e of ends) {
       if (!e.task || !tasks.has(e.task) || e.result !== "fail" || !e.cause) continue;
-      if (["spec_ambiguous", "spec_missing_state", "arch_wrong"].includes(e.cause)) returns[e.cause] = (returns[e.cause] ?? 0) + 1;
+      if (BACK.includes(e.cause)) returns[e.cause] = (returns[e.cause] ?? 0) + 1;
+    }
+    // 작업 노드(N24 등)가 막혀 사람이 앞 스테이지 원인으로 바로잡은 것도 Stage 2에서 돌아간 것이다
+    for (const e of hs) {
+      if (e.kind !== "reclassify" || !e.task || !tasks.has(e.task) || !e.cause || !BACK.includes(e.cause)) continue;
+      if (nodes.nodes[e.node]?.kind === "work") returns[e.cause] = (returns[e.cause] ?? 0) + 1;
     }
     const stageMap = new Map<number, { tokens: number; minutes: number; costUsd: number }>();
     for (const e of ends) {

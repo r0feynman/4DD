@@ -89,6 +89,13 @@ export function humanAction(root: string, kind: HumanKind, arg?: string, minutes
       const lastGate = events.filter((e) => e.type === "gate_run").at(-1);
       const evidence = [lastEnd?.type === "node_end" ? lastEnd.id : null, lastGate?.type === "gate_run" ? lastGate.id : null, id].filter((x): x is string => !!x);
       const lid = addLearningCandidate(root, H, arg, evidence, node);
+      // 힌트 글과 학습 후보만 커밋한다. 커밋하지 않으면 다음 노드의 차례 뒤 변경 검사가
+      // 그 노드가 잠긴 파일을 고친 것으로 보고 되돌린다 (2026-11-26 실제 실행에서 힌트와 학습 후보가 지워짐).
+      // 실패한 노드가 남긴 작업 중 변경은 커밋하지 않는다: 힌트를 받고 그 노드가 이어서 고친다.
+      const mine = [`${HUMAN_DIR}/${id}.md`, LEARNINGS_FILE];
+      git(root, ["add", "--", ...mine]);
+      git(root, ["commit", "-q", "-m", `human hint\n\n4DD-Node: ${node}\n${task ? `4DD-Task: ${task}\n` : ""}4DD-Human: ${id}`, "--", ...mine], { FOURDD_ALLOW_LOCKED: "1" });
+      appendEvent(root, H, { type: "commit", sha: git(root, ["rev-parse", "HEAD"]).trim(), node, task });
       loadState(root);
       return `${id} 힌트를 남겼습니다. 다음 차례의 맥락에 들어가고, 학습 후보 ${lid}로 더했습니다. 4dd run으로 이어 갑니다`;
     }
