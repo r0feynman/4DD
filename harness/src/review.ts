@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { marked } from "marked";
-import { GATE_DIR } from "./gate.ts";
+import { GATE_DIR, SPEC_CONFLICT } from "./gate.ts";
 import type { LedgerEvent } from "./ledger.ts";
 import type { NodeDef } from "./nodes.ts";
 import { DESIGN_SECTIONS, featureFiles, featurePath, listItems, openQuestions, readSprint, readText, sections, type FileHash } from "./plan.ts";
@@ -127,6 +127,19 @@ ${background.length ? `<div class="bg"><span class="k">모든 시나리오의 �
 <section class="how"><h2>답하는 법</h2><p>채팅에 <b>「승인」</b>이라고 적어 주세요. 고칠 점이나 물을 것의 답이 있으면 그대로 적어 주세요. 에이전트가 스펙과 시나리오를 고쳐 새 검토 페이지를 보여 드립니다.</p></section>`;
 }
 
+/**
+ * 통과한 리뷰 세션이 찾은 「스펙·시나리오 모순」 지적. 통과했어도 PO에게 보인다
+ * (2026-11-26 실제 실행: 승인된 아이디 규칙과 시나리오의 예시 아이디가 부딪쳐 개발 중에 멈춤).
+ */
+export function specConflicts(root: string, runId: string | null): string[] {
+  const file = runId ? join(root, GATE_DIR, `${runId}.summary.md`) : "";
+  if (!file || !existsSync(file)) return [];
+  return readFileSync(file, "utf8")
+    .split("\n")
+    .filter((l) => l.includes(SPEC_CONFLICT))
+    .map((l) => l.replace(/^-\s*/, "").trim());
+}
+
 function reviewResults(root: string, feature: string, events: LedgerEvent[]): string {
   const rows: string[] = [];
   for (const node of ["N13", "N14"]) {
@@ -136,9 +149,11 @@ function reviewResults(root: string, feature: string, events: LedgerEvent[]): st
     const lastFail = fails.at(-1);
     const finding = lastFail?.type === "node_end" && existsSync(join(root, GATE_DIR, `${lastFail.id}.summary.md`)) ? readFileSync(join(root, GATE_DIR, `${lastFail.id}.summary.md`), "utf8").trim() : "";
     const label = node === "N13" ? "설계 리뷰" : "작업 나누기 리뷰";
+    const conflicts = specConflicts(root, lastPass?.type === "node_end" ? lastPass.id : null);
     rows.push(
-      `<article class="card rv ${lastPass ? "ok" : "no"}"><header><b>${node} ${label}</b><span class="badge">${lastPass ? "통과" : "아직 통과 못 함"}</span></header>` +
+      `<article class="card rv ${lastPass && !conflicts.length ? "ok" : "no"}"><header><b>${node} ${label}</b><span class="badge">${lastPass ? "통과" : "아직 통과 못 함"}</span></header>` +
         `<p>${fails.length ? `리뷰가 ${fails.length}번 고치게 한 뒤 통과했습니다.` : "첫 차례에 통과했습니다."}</p>` +
+        (conflicts.length ? `<p class="warn">앞서 승인한 스펙과 시나리오가 서로 맞지 않는 곳을 리뷰가 찾았습니다. 그대로 두면 개발 중에 멈춥니다.</p><ul>${conflicts.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : "") +
         (finding ? `<details><summary>마지막으로 고치게 한 지적</summary><pre>${esc(finding.slice(0, 1500))}</pre></details>` : "") +
         "</article>",
     );

@@ -15,6 +15,10 @@ import { countAtRef, countSource, countWorktree } from "./testscan.ts";
 import { checkProject, parseSpec, scenariosForTask, type TraceMode } from "./trace.ts";
 
 export const GATE_DIR = `${DIR}/gates`;
+/** 통과한 리뷰 세션이 남긴 참고 지적의 머리말 (검토 페이지가 찾음) */
+export const REVIEW_NOTE_HEAD = "리뷰 세션의 참고 (통과):";
+/** 리뷰 세션이 승인된 스펙·시나리오끼리의 모순을 찾았을 때 지적 앞에 붙이는 말 (N13.review.md) */
+export const SPEC_CONFLICT = "스펙·시나리오 모순";
 export const GATE_TIMEOUT_MS = 10 * 60_000;
 export const ACCEPTANCE_DIR = "tests/acceptance";
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;

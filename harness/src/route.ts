@@ -5,10 +5,12 @@
 //   작업 노드 실패 → 같은 노드 다시
 //   판단 노드 실패 → 실패 원인별로 갈 곳 (사람에게 가는 원인이나 앞 스테이지로 가는 원인이면 사람을 기다림)
 //   사람 개입 뒤 → 승인이면 then, 힌트면 다시 시도, 분류 바로잡기면 새 원인의 경로로, 보류면 다음 작업
+//     작업 노드(N24 등)가 횟수 제한을 넘었는데 사람이 앞 스테이지 원인(스펙·설계)으로 바로잡으면,
+//     같은 스테이지 뒤 판단 노드(N26, N27)의 그 원인 경로를 쓴다 (사람 승인 뒤 N02 → N04 → 원래 작업의 N22)
 //   검토 승인(조각 2) → 다음 노드. 앞 스테이지로 돌아갔던 작업이면 처음 실패한 곳의 then으로 돌아옴
 
 import type { LedgerEvent } from "./ledger.ts";
-import { failRoute, getNode, nextNode, type Cause, type NodeSet, type WorkType } from "./nodes.ts";
+import { failRoute, getNode, goesBack, nextNode, stageRoute, type Cause, type NodeSet, type WorkType } from "./nodes.ts";
 import type { State } from "./state.ts";
 
 export type Step =
@@ -45,13 +47,28 @@ function pendingThen(nodes: NodeSet, ends: NodeEnd[]): string | null {
   return null;
 }
 
-/** 앞 스테이지(스펙, 설계)로 돌아갔던 작업이 다시 승인받았을 때 돌아올 곳: 그 작업이 처음 실패한 판단 노드 경로의 then */
-function excursionReturn(nodes: NodeSet, ends: NodeEnd[]): string {
-  for (let i = ends.length - 1; i >= 0; i--) {
-    const e = ends[i];
-    if (e.result !== "fail" || nodes.nodes[e.node]?.kind !== "decision") continue;
-    const r = failRoute(nodes, e.node, causeOf(e));
-    if (r?.then && nodes.nodes[r.goto] && nodes.nodes[r.goto].stage < nodes.nodes[e.node].stage) return r.then;
+/** 원인이 정해진 실패 하나: 판단 노드의 실패, 또는 사람이 작업 노드(N24 등)의 원인을 바로잡은 것 */
+type Failure = { node: string; cause: Cause };
+
+/** 이 일감에서 원인이 정해진 실패를 원장 순서대로 */
+function unitFailures(events: LedgerEvent[], nodes: NodeSet, state: State): Failure[] {
+  const out: Failure[] = [];
+  for (const e of events) {
+    if (e.type === "node_end" && inUnit(e, state) && e.result === "fail" && nodes.nodes[e.node]?.kind === "decision") {
+      out.push({ node: e.node, cause: causeOf(e) });
+    } else if (e.type === "human" && e.kind === "reclassify" && e.cause && state.task && e.task === state.task) {
+      out.push({ node: e.node, cause: e.cause });
+    }
+  }
+  return out;
+}
+
+/** 앞 스테이지(스펙, 설계)로 돌아갔던 작업이 다시 승인받았을 때 돌아올 곳: 앞 스테이지로 보낸 마지막 실패 경로의 then */
+function excursionReturn(nodes: NodeSet, failures: Failure[]): string {
+  for (let i = failures.length - 1; i >= 0; i--) {
+    const f = failures[i];
+    const r = stageRoute(nodes, f.node, f.cause);
+    if (r?.then && goesBack(nodes, f.node, r)) return r.then;
   }
   return "N21";
 }
@@ -63,11 +80,11 @@ function retryTarget(nodes: NodeSet, end: NodeEnd): string {
   return r && r.goto !== "human" ? r.goto : end.node;
 }
 
-function afterReview(nodes: NodeSet, h: Human, end: NodeEnd, ends: NodeEnd[], state: State, workType: WorkType): Step {
+function afterReview(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[], state: State, workType: WorkType): Step {
   const node = getNode(nodes, end.node);
   if (h.kind === "approve") {
     // Stage 2에서 돌아왔던 작업이면, 승인 뒤 원래 자리로 (스펙 → N22, 설계 → 다음 작업 고르기)
-    if (state.task) return toStep(excursionReturn(nodes, ends));
+    if (state.task) return toStep(excursionReturn(nodes, failures));
     if (node.approve?.packet === "1-2") return { kind: "pick" };
     const next = nextNode(nodes, end.node, workType);
     return next ? toStep(next) : { kind: "pick" };
@@ -80,8 +97,8 @@ function afterReview(nodes: NodeSet, h: Human, end: NodeEnd, ends: NodeEnd[], st
   return h.to ? { kind: "node", node: h.to } : { kind: "human", node: end.node, reason: "review" };
 }
 
-function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, ends: NodeEnd[], state: State, workType: WorkType): Step {
-  if (h.review && (h.kind === "approve" || h.kind === "reject")) return afterReview(nodes, h, end, ends, state, workType);
+function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[], state: State, workType: WorkType): Step {
+  if (h.review && (h.kind === "approve" || h.kind === "reject")) return afterReview(nodes, h, end, failures, state, workType);
   switch (h.kind) {
     case "story":
       // 스토리를 다시 받았다 (N12가 준비 안 됨으로 N01에 보냄): 스펙부터
@@ -92,8 +109,9 @@ function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, ends: NodeEnd[], sta
       return { kind: "node", node: retryTarget(nodes, end) };
     case "reclassify": {
       const cause = h.cause ?? causeOf(end);
-      if (getNode(nodes, end.node).kind === "work") return { kind: "node", node: end.node };
-      const r = failRoute(nodes, end.node, cause);
+      const r = stageRoute(nodes, end.node, cause);
+      // 작업 노드는 같은 노드를 다시 한다. 다만 사람이 앞 스테이지 원인(스펙·설계)으로 바로잡으면 그 경로로 (사람 승인 뒤)
+      if (getNode(nodes, end.node).kind === "work" && !goesBack(nodes, end.node, r)) return { kind: "node", node: end.node };
       if (!r || r.goto === "human" || r.confirm) return { kind: "human", node: end.node, reason: cause };
       return { kind: "node", node: r.goto };
     }
@@ -104,6 +122,11 @@ function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, ends: NodeEnd[], sta
       if (end.result === "fail" && n.kind === "decision" && !end.cause && n.otherwise) {
         // 원인 단어 없이 실패한 판단 노드(N12): 승인 뒤 otherwise의 then으로
         return toStep(n.otherwise.then ?? end.node);
+      }
+      if (n.kind === "work" && reason && reason !== "budget_exceeded" && reason !== "env") {
+        // 사람이 작업 노드의 실패를 앞 스테이지 원인으로 바로잡고 승인했다: 그 노드부터 고친다
+        const back = stageRoute(nodes, end.node, reason as Cause);
+        if (back && goesBack(nodes, end.node, back)) return { kind: "node", node: back.goto };
       }
       if (!reason || reason === "budget_exceeded" || reason === "env" || n.kind === "work") {
         return { kind: "node", node: retryTarget(nodes, end) };
@@ -133,7 +156,7 @@ export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: Work
   const end = events[idx] as NodeEnd;
   const ends = events.filter((e): e is NodeEnd => inUnit(e, state));
   const human = events.slice(idx + 1).filter((e): e is Human => e.type === "human").at(-1);
-  if (human) return afterHuman(nodes, human, end, ends, state, workType);
+  if (human) return afterHuman(nodes, human, end, unitFailures(events, nodes, state), state, workType);
 
   const node = getNode(nodes, end.node);
   if (end.result === "wait") return { kind: "human", node: end.node, reason: node.approve ? "review" : (end.cause ?? "env") };

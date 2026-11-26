@@ -10,6 +10,7 @@ import { bashViolation } from "../src/lock.ts";
 import { loadNodes } from "../src/nodes.ts";
 import { approveReview, buildReview, PoError, recordPublished, rejectReview, tellStory } from "../src/po.ts";
 import { decideNext } from "../src/route.ts";
+import { specConflicts } from "../src/review.ts";
 import { loadState } from "../src/state.ts";
 
 const nodes = loadNodes();
@@ -197,4 +198,18 @@ describe("승인을 지키는 겹: 작업 세션의 셸 훅", () => {
 
 it("PoError는 잘못된 사용을 알린다", () => {
   expect(new PoError("x")).toBeInstanceOf(Error);
+});
+
+describe("검토 페이지의 리뷰 결과 (N15)", () => {
+  it("통과한 리뷰가 찾은 「스펙·시나리오 모순」만 골라 PO에게 보인다", () => {
+    const dir = mkdtempSync(join(tmpdir(), "4dd-conflict-"));
+    mkdirSync(join(dir, ".4dd/gates"), { recursive: true });
+    writeFileSync(
+      join(dir, ".4dd/gates/NR9.summary.md"),
+      "N13 리뷰 세션 통과\n리뷰 세션의 참고 (통과):\n- specs/signup/signup.feature:14 스펙·시나리오 모순: S4의 예시 아이디 lee는 3자라 R9(4~20자)에 걸린다\n- design.md 이름을 더 짧게 하면 좋음\n",
+    );
+    expect(specConflicts(dir, "NR9")).toEqual(["specs/signup/signup.feature:14 스펙·시나리오 모순: S4의 예시 아이디 lee는 3자라 R9(4~20자)에 걸린다"]);
+    expect(specConflicts(dir, "NR10")).toEqual([]);
+    expect(specConflicts(dir, null)).toEqual([]);
+  });
 });

@@ -7,7 +7,7 @@ import type { Config } from "./config.ts";
 import { buildContext } from "./context.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { GATE_DIR, runGate, type GateOutcome } from "./gate.ts";
+import { GATE_DIR, REVIEW_NOTE_HEAD, runGate, type GateOutcome } from "./gate.ts";
 import { checkDiff } from "./guard.ts";
 import { appendEvent, nextId, readEvents } from "./ledger.ts";
 import { ledgerIntact, ledgerSnapshot } from "./lock.ts";
@@ -343,6 +343,9 @@ function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: 
     notes.push("리뷰 결과를 정해진 형식으로 읽지 못했습니다");
   } else if (!verdict.pass) {
     notes.push(`리뷰 세션의 지적 (고친 뒤 다시 리뷰받습니다):\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
+  } else if (verdict.findings.length) {
+    // 통과해도 참고 지적은 남긴다. 「스펙·시나리오 모순」은 검토 페이지가 PO에게 보여 준다
+    notes.push(`${REVIEW_NOTE_HEAD}\n${verdict.findings.map((f) => `- ${f.file}${f.line ? `:${f.line}` : ""} ${f.why}`).join("\n")}`);
   }
   if (diff.violations.length) notes.push(diff.message);
   const passed = !stop && turn.ok && !!verdict?.pass && diff.violations.length === 0;

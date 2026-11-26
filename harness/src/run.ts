@@ -207,7 +207,9 @@ export function runLoop(opts: RunOptions): RunOutcome {
   if (state.status === "stopped") return { reason: "stopped", message: "중단된 상태입니다. 원인을 고친 뒤 4dd human approve로 다시 시작합니다", run: null };
 
   const run = nextId(readEvents(root).events, "RUN");
-  const startFeature = unitFeature(root, state) ?? featureTrace(root, state.task)?.dir.split("/").pop() ?? "-";
+  // 일감이 아직 없으면 다음에 고를 작업의 기능 (첫 기능이 아니라)
+  const upcoming = state.task || state.planning ? null : nextTask(root, state);
+  const startFeature = unitFeature(root, state) ?? (upcoming ? featureOfTask(root, upcoming.id) : null) ?? featureTrace(root, state.task)?.dir.split("/").pop() ?? "-";
   const startStage = state.node && nodes.nodes[state.node] ? nodes.nodes[state.node].stage : state.planning ? 0 : 2;
   appendEvent(root, H, { type: "run_start", run, agent, feature: startFeature, stage: startStage });
   let tasksDone = 0;

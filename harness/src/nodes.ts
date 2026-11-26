@@ -286,6 +286,31 @@ export function failRoute(set: NodeSet, id: string, cause: Cause): Route | null 
   return null;
 }
 
+/**
+ * 사람이 원인을 정했을 때 갈 곳. 판단 노드는 자기 경로를 쓴다. 작업 노드(N23~N25)는 경로가 없으므로,
+ * 같은 스테이지에서 그 뒤에 오는 판단 노드 가운데 그 원인을 다루는 첫 노드의 경로를 쓴다
+ * (예: N24가 횟수 제한을 넘었는데 사람이 spec_ambiguous로 바로잡으면 N26의 경로 → N02, then N22).
+ * workflow.md 「횟수 제한」: 한도를 넘으면 사람이 분류를 바로잡거나 스펙을 고칠 수 있다.
+ */
+export function stageRoute(set: NodeSet, id: string, cause: Cause): Route | null {
+  const own = failRoute(set, id, cause);
+  if (own || getNode(set, id).kind !== "work") return own;
+  const stage = getNode(set, id).stage;
+  const after = set.order.slice(set.order.indexOf(id) + 1);
+  for (const other of after) {
+    const n = set.nodes[other];
+    if (n.stage !== stage || n.kind !== "decision") continue;
+    const r = failRoute(set, other, cause);
+    if (r) return r;
+  }
+  return null;
+}
+
+/** 앞 스테이지(스펙, 설계)로 가는 경로인가 */
+export function goesBack(set: NodeSet, id: string, r: Route | null): boolean {
+  return !!r && r.goto !== "human" && !!set.nodes[r.goto] && set.nodes[r.goto].stage < getNode(set, id).stage;
+}
+
 /** 작업 세션을 나누는 단위 */
 export function sessionScope(n: NodeDef): "task" | "stage" {
   return n.session ?? (n.stage >= 2 ? "task" : "stage");

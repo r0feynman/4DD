@@ -21,6 +21,7 @@ import { CAUSES, getNode, loadNodes, type Cause } from "./nodes.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, formatIssues, nextIds } from "./trace.ts";
 import { approveReview, buildReview, recordPublished, rejectReview, tellStory, type Speaker } from "./po.ts";
+import { featureOfTask } from "./plan.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
@@ -118,7 +119,7 @@ function status(dir: string | undefined): number {
   const { state: s, rebuilt, warnings } = loadState(root);
   const lines = [
     `상태: ${STATUS_WORD[s.status]}`,
-    `기능: ${s.feature ?? "-"} · 도구: ${s.agent ?? "-"} · 하네스 ${s.harness ?? "-"}`,
+    `기능: ${(s.task ? featureOfTask(root, s.task) : null) ?? s.planning ?? s.feature ?? "-"} · 도구: ${s.agent ?? "-"} · 하네스 ${s.harness ?? "-"}`,
     `작업: ${s.task ?? "-"} · 노드: ${s.node ?? "-"}${s.node_run ? ` (${s.node_run})` : ""}`,
     `되돌림: 작업 전체 ${s.task_backtracks}번${Object.entries(s.fails).filter(([, n]) => n > 0).map(([k, n]) => ` · ${k} 연속 ${n}번`).join("")}`,
     `끝낸 작업: ${s.done_tasks.join(", ") || "-"}${s.held_tasks.length ? ` · 보류: ${s.held_tasks.join(", ")}` : ""}`,
