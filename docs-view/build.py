@@ -1435,14 +1435,14 @@ def page_slice3(ctx):
   <div class="stats">
     <div class="stat"><b>{len(nrows)}</b><span>노드 줄</span></div>
     <div class="stat"><b>{n_fig}</b><span>Figma 노드</span></div>
-    <div class="stat"><b>{n_owner}·{n_prop}</b><span>오너 결정·제안</span></div>
+    <div class="stat"><b>{n_owner}</b><span>정한 것{f" (+ 제안 {n_prop})" if n_prop else ""}</span></div>
     <div class="stat"><b>{n_steps}</b><span>구현 단계</span></div>
     <div class="stat"><b>{n_done}</b><span>완료 기준</span></div>
   </div>
 </header>
 <section>
   <h2>정한 것</h2>
-  <p>노랑은 오너가 정한 것, 점선은 이 명세의 제안(승인 전)입니다.</p>
+  <p>{"노랑은 오너가 정한 것, 점선은 이 명세의 제안(승인 전)입니다." if n_prop else "모두 오너가 정했습니다. 아래쪽 일곱 장은 명세가 제안하고 오너가 그대로 승인한 것입니다."}</p>
   <div class="cards onto-cards">{decided}</div>
 </section>
 <section>
