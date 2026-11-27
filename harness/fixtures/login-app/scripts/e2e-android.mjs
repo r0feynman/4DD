@@ -45,7 +45,20 @@ for (const file of files) {
     await waitUp();
     const out = join(root, ".4dd", "shots", "android-raw", id);
     rmSync(out, { recursive: true, force: true });
-    const r = spawnSync(maestro, ["test", file, "--test-output-dir", out], { cwd: root, stdio: "inherit", env: { ...process.env, PATH: `${join(sdk, "platform-tools")}:${process.env.PATH}` } });
+    const env = { ...process.env, PATH: `${join(sdk, "platform-tools")}:${process.env.PATH}` };
+    const run = () => {
+      const r = spawnSync(maestro, ["test", file, "--test-output-dir", out], { cwd: root, encoding: "utf8", env, maxBuffer: 64 * 1024 * 1024 });
+      process.stdout.write(r.stdout ?? "");
+      process.stderr.write(r.stderr ?? "");
+      return r;
+    };
+    let r = run();
+    // 긴 실행 중에 Maestro의 기기 쪽 드라이버가 제때 뜨지 않을 때가 있다 (앱과 상관없는 도구 문제). 그 플로우만 한 번 다시 돌린다 (조각 3 실제 실행)
+    if (r.status !== 0 && /did not start up in time|DriverStartupException/.test(`${r.stdout}${r.stderr}`)) {
+      console.error(`[e2e-android] ${id}: Maestro 드라이버가 뜨지 않아 한 번 다시 돌립니다`);
+      rmSync(out, { recursive: true, force: true });
+      r = run();
+    }
     if (r.status !== 0) failed++;
     const shot = pngs(out).find((p) => basename(p) === `${id}.png`) ?? pngs(out).at(-1);
     if (shot) copyFileSync(shot, join(shots, `${id}.png`));
