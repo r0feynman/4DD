@@ -113,6 +113,9 @@ describe("화면 기능의 관문 (조각 3)", () => {
     expect(r.passed, r.summary).toBe(true);
     const runs = readEvents(root).events.filter((e) => e.type === "gate_run" && e.node === "N22").slice(-3);
     expect(runs.map((e) => (e.type === "gate_run" ? `${e.platform}:${e.result}` : ""))).toEqual(["android:pass", "android:pass", "web:pass"]);
+    // 앱 빌드에는 표시가, 모든 명령에는 걸린 시간이 남는다 (보고서의 빌드·플로우 시간)
+    expect(runs.map((e) => (e.type === "gate_run" ? !!e.build : null))).toEqual([true, false, false]);
+    expect(runs.every((e) => e.type === "gate_run" && typeof e.seconds === "number")).toBe(true);
   });
 
   it("N26: 플로우가 통과하면 통과, 한 플랫폼이라도 실패하면 실패", () => {
@@ -276,6 +279,12 @@ describe("화면 비교 N26F (조각 3)", () => {
     expect(gate("N26F").checks[0].detail).toContain("web S15: 찍은 화면이 없습니다");
     put(".4dd/shots/web/S15.png", png([[500, 520]])); // 20줄 ≈ 0.9% → 허용 5% 안
     expect(gate("N26F").passed).toBe(true);
+    // 비교 한 건마다 원장에 시나리오·차이 비율·허용 비율이 남는다 (보고서의 분포)
+    const last = readEvents(root).events.filter((e) => e.type === "gate_run" && e.node === "N26F").slice(-2);
+    expect(last.map((e) => (e.type === "gate_run" ? [e.platform, e.scenario, e.diff_percent, e.tolerance, e.result] : []))).toEqual([
+      ["android", "S15", 0, 5, "pass"],
+      ["web", "S15", 0.9, 5, "pass"],
+    ]);
   });
 
   it("화면 기능은 N26 뒤 N26F, 백엔드는 N27; ui_mismatch는 N24로", () => {

@@ -2,7 +2,7 @@
 //
 // 지휘 프로그램(4dd run)은 이 함수를 노드마다 부르고, 통과하면 커밋하고 다음 노드로 간다.
 
-import type { Adapter, FigmaAccess, TurnResult } from "./adapters.ts";
+import { FIGMA_WRITE_TOOLS, type Adapter, type FigmaAccess, type TurnResult } from "./adapters.ts";
 import type { Config } from "./config.ts";
 import { buildContext } from "./context.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -120,6 +120,7 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
 
   const passed = !stop && turn.ok && diff.violations.length === 0 && (gate?.passed ?? true) && (review?.passed ?? true);
   const both = review?.turn ? sumTurns(turn, review.turn) : turn;
+  const figmaCalls = node.figma ? countFigmaCalls(readEvents(root).events, runId) : undefined;
   appendEvent(root, H, {
     type: "node_end",
     id: runId,
@@ -135,6 +136,7 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
     ...(both.costUsd !== undefined ? { cost_usd: both.costUsd } : {}),
     minutes: both.minutes,
     ...(both.turns !== undefined ? { turns: both.turns } : {}),
+    ...(figmaCalls ? { figma_calls: figmaCalls } : {}),
   });
   loadState(root); // state.json을 원장에 맞춘다
 
@@ -366,4 +368,11 @@ function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: 
   mkdirSync(join(root, GATE_DIR), { recursive: true });
   writeFileSync(join(root, GATE_DIR, `${runId}.summary.md`), `${o.gateSummary}\n\n${summary}\n`, "utf8");
   return { passed, ...(cause ? { cause } : {}), ...(stop ? { stop } : {}), summary, turn, loaded: rctx.loaded };
+}
+
+/** 이 노드 실행(그린 세션과 리뷰 세션)에서 훅이 본 Figma 도구 호출 수 (조각 3) */
+export function countFigmaCalls(events: LedgerEvent[], runId: string): { read: number; write: number } {
+  const calls = events.filter((e): e is Extract<LedgerEvent, { type: "hook_run" }> => e.type === "hook_run" && e.check === "figma" && e.run === runId);
+  const write = calls.filter((e) => FIGMA_WRITE_TOOLS.includes((e.target ?? "").split("__").at(-1) ?? "")).length;
+  return { read: calls.length - write, write };
 }

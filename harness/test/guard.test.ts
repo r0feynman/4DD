@@ -46,7 +46,7 @@ describe("4dd init", () => {
     // Codex 훅은 프로젝트가 아니라 사용자 설정에 한 번 넣는다 (4dd setup codex)
     expect(existsSync(join(root, ".codex/hooks.json"))).toBe(false);
     const claude = JSON.parse(readFileSync(join(root, ".4dd/hooks/claude.json"), "utf8"));
-    expect(claude.hooks.PreToolUse[0].matcher).toBe("Edit|Write|MultiEdit|NotebookEdit|Bash");
+    expect(claude.hooks.PreToolUse[0].matcher).toBe("Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*figma.*");
     expect(claude.hooks.PreToolUse[0].hooks[0].command).toContain("check hook --tool claude");
     expect(git(root, ["config", "core.hooksPath"]).trim()).toBe(".githooks");
     expect(git(root, ["log", "--format=%s"]).trim()).toBe("4dd init");

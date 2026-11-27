@@ -63,6 +63,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     cost_usd: z.number().min(0).optional(),
     minutes: z.number().min(0),
     turns: z.number().int().min(0).optional(),
+    /** Figma 도구를 부른 수 (조각 3: 하루 읽기 한도 안에 드는지) */
+    figma_calls: z.strictObject({ read: z.number().int().min(0), write: z.number().int().min(0) }).optional(),
   }),
   z.strictObject({
     type: z.literal("gate_run"),
@@ -77,13 +79,21 @@ export const EventSchema = z.discriminatedUnion("type", [
     tests: z.strictObject({ total: z.number().int().min(0), failed: z.number().int().min(0), skipped: z.number().int().min(0).optional() }).optional(),
     /** 화면 기능의 인수 테스트를 돌린 플랫폼 (조각 3) */
     platform: z.enum(["android", "web"]).optional(),
+    /** 명령이 걸린 시간 (조각 3: 앱 빌드·플로우 시간을 보고서에서 봄) */
+    seconds: z.number().min(0).optional(),
+    /** 앱 빌드 명령 ({e2e.build}) */
+    build: z.boolean().optional(),
+    /** 화면 비교 한 건 (N26F): 시나리오, 다른 픽셀 비율, 허용 비율 */
+    scenario: z.string().regex(/^S\d+$/).optional(),
+    diff_percent: z.number().min(0).optional(),
+    tolerance: z.number().min(0).optional(),
   }),
   z.strictObject({
     type: z.literal("hook_run"),
     ...Common,
     id: Id("HR"),
     hook: z.string().min(1),
-    check: z.enum(["trace", "path", "bash", "session", "commit", "diff_lock"]),
+    check: z.enum(["trace", "path", "bash", "session", "commit", "diff_lock", "figma"]),
     run: Id("NR").nullable(),
     target: z.string().optional(),
     result: z.enum(["allowed", "blocked"]),

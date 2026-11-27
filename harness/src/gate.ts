@@ -135,7 +135,8 @@ function parseVitestTests(output: string): { total: number; failed: number; skip
   return { total, failed: num(/(\d+) failed/), ...(skipped ? { skipped } : {}) };
 }
 
-function runCommand(root: string, command: string, timeoutMs: number): { exit: number; output: string; timedOut: boolean } {
+function runCommand(root: string, command: string, timeoutMs: number): { exit: number; output: string; timedOut: boolean; seconds: number } {
+  const started = Date.now();
   const r = spawnSync("sh", ["-c", command], {
     cwd: root,
     encoding: "utf8",
@@ -146,10 +147,19 @@ function runCommand(root: string, command: string, timeoutMs: number): { exit: n
   });
   const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
   const exit = r.status ?? (timedOut ? 124 : 1);
-  return { exit, output: `${r.stdout ?? ""}${r.stderr ?? ""}`, timedOut };
+  return { exit, output: `${r.stdout ?? ""}${r.stderr ?? ""}`, timedOut, seconds: Math.round((Date.now() - started) / 100) / 10 };
 }
 
-function record(ctx: GateContext, command: string, exit: number, result: "pass" | "fail", flakyRerun: boolean, output: string, platform?: Platform): GateRunResult {
+/** gate_run에 더 남길 것 (조각 3) */
+interface RunExtra {
+  seconds?: number;
+  build?: boolean;
+  scenario?: string;
+  diff_percent?: number;
+  tolerance?: number;
+}
+
+function record(ctx: GateContext, command: string, exit: number, result: "pass" | "fail", flakyRerun: boolean, output: string, platform?: Platform, extra: RunExtra = {}): GateRunResult {
   const { events } = readEvents(ctx.root);
   const id = nextId(events, "GR");
   mkdirSync(join(ctx.root, GATE_DIR), { recursive: true });
@@ -168,6 +178,7 @@ function record(ctx: GateContext, command: string, exit: number, result: "pass" 
     ...(flakyRerun ? { flaky_rerun: true } : {}),
     ...(platform ? { platform } : {}),
     ...(tests ? { tests } : {}),
+    ...extra,
   });
   return { id, command, exit, result, flakyRerun, log };
 }
@@ -226,6 +237,14 @@ function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[];
       if (!platforms.length || !ids.length) return { name, ok: true, detail: "비교할 화면 시나리오가 없습니다 (화면 없음)" };
       const settings = visualSettings(ctx.config);
       const results = platforms.flatMap((p) => ids.map((id) => compareShot(root, id, p, settings)));
+      // 비교 한 건마다 원장에 남긴다: 보고서가 첫 통과율과 차이 비율 분포를 본다
+      for (const r of results) {
+        record(ctx, `visual ${r.platform} ${r.scenario}`, r.ok ? 0 : 1, r.ok ? "pass" : "fail", false, describeVisual(r), r.platform, {
+          scenario: r.scenario,
+          tolerance: r.tolerance,
+          ...(r.diffPercent !== undefined ? { diff_percent: r.diffPercent } : {}),
+        });
+      }
       const bad = results.filter((r) => !r.ok);
       return {
         name,
@@ -422,11 +441,11 @@ export function runGate(ctx: GateContext): GateOutcome {
     const envProblem = r.timedOut || r.exit === 126 || r.exit === 127;
     const met = (exit: number) => (isBuild ? exit === 0 : reentry || (gate.expect === "pass" ? exit === 0 : exit !== 0));
     if (envProblem) {
-      runs.push(record(ctx, command, r.exit, "fail", false, r.output, step.platform));
+      runs.push(record(ctx, command, r.exit, "fail", false, r.output, step.platform, { seconds: r.seconds, ...(isBuild ? { build: true } : {}) }));
       cause = "env";
       continue;
     }
-    runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", false, r.output, step.platform));
+    runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", false, r.output, step.platform, { seconds: r.seconds, ...(isBuild ? { build: true } : {}) }));
     if (isBuild && r.exit !== 0) {
       if (step.platform) brokenBuild.add(step.platform);
       continue;
@@ -434,7 +453,7 @@ export function runGate(ctx: GateContext): GateOutcome {
     if (!met(r.exit) && gate.flaky_rerun && gate.expect === "pass") {
       // test_flaky: 한 번 다시 돌려 결과가 바뀌면 테스트가 불안정한 것이다. 이 재실행은 횟수에 넣지 않는다.
       r = runCommand(ctx.root, command, timeoutMs);
-      runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", true, r.output, step.platform));
+      runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", true, r.output, step.platform, { seconds: r.seconds }));
       if (met(r.exit)) cause = "test_flaky";
     }
   }

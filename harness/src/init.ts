@@ -33,7 +33,7 @@ export function hookCommand(args: string): string {
 function claudeHooksJson(): string {
   const command = hookCommand("check hook --tool claude");
   const entry = (m?: string) => [{ ...(m ? { matcher: m } : {}), hooks: [{ type: "command", command }] }];
-  return JSON.stringify({ hooks: { PreToolUse: entry("Edit|Write|MultiEdit|NotebookEdit|Bash"), SessionStart: entry() } }, null, 2) + "\n";
+  return JSON.stringify({ hooks: { PreToolUse: entry("Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*figma.*"), SessionStart: entry() } }, null, 2) + "\n";
 }
 
 export interface InitOptions {

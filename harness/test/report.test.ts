@@ -67,3 +67,54 @@ describe("4dd report", () => {
     expect(renderReport(empty)).toContain("| 첫 통과율 (판단 노드) | - |");
   });
 });
+
+describe("4dd report: 화면 기능 (조각 3)", () => {
+  const gr = (id: string, run: string, task: string, extra: Record<string, unknown>) =>
+    ev({ type: "gate_run", id, node: "N26F", task, run, exit: extra.result === "fail" ? 1 : 0, result: "pass", ...extra });
+  const screenEvents: LedgerEvent[] = [
+    ev({ type: "run_start", run: "RUN1", agent: "claude", feature: "login-screen" }),
+    ev({ type: "device", action: "up", avd: "4dd-api36", result: "ok", boot_seconds: 31 }),
+    ...node("T10", "N03F", "pass", { figma_calls: { read: 12, write: 5 } }),
+    ev({ type: "gate_run", id: "GR1", node: "N26", task: "T10", run: "NR90", exit: 0, result: "pass", platform: "android", build: true, seconds: 200 }),
+    ev({ type: "gate_run", id: "GR2", node: "N26", task: "T10", run: "NR90", exit: 0, result: "pass", platform: "android", seconds: 9.5 }),
+    ev({ type: "gate_run", id: "GR3", node: "N26", task: "T10", run: "NR90", exit: 0, result: "pass", platform: "web", seconds: 2.5 }),
+    // T10 첫 N26F: android 넘음, web 통과 → 고친 뒤 둘 다 통과
+    gr("GR4", "NR91", "T10", { platform: "android", scenario: "S15", diff_percent: 7.2, tolerance: 5, result: "fail" }),
+    gr("GR5", "NR91", "T10", { platform: "web", scenario: "S15", diff_percent: 1.4, tolerance: 5 }),
+    ...node("T10", "N26F", "fail", { cause: "ui_mismatch" }),
+    gr("GR6", "NR92", "T10", { platform: "android", scenario: "S15", diff_percent: 3.1, tolerance: 5 }),
+    gr("GR7", "NR92", "T10", { platform: "web", scenario: "S15", diff_percent: 0.6, tolerance: 5 }),
+    // T11: 첫 차례에 둘 다 통과
+    gr("GR8", "NR93", "T11", { platform: "android", scenario: "S16", diff_percent: 2.2, tolerance: 5 }),
+    gr("GR9", "NR93", "T11", { platform: "web", scenario: "S16", diff_percent: 0.9, tolerance: 5 }),
+    ...node("T11", "N26F", "fail", { cause: "design_wrong" }),
+  ];
+  const sc = buildReport(screenEvents, nodes).screens!;
+
+  it("플랫폼별 N26F 첫 통과와 ui_mismatch, 디자인 되돌림", () => {
+    expect(sc.firstPass).toEqual([
+      { platform: "android", tasks: 2, passed: 1 },
+      { platform: "web", tasks: 2, passed: 2 },
+    ]);
+    expect(sc.uiMismatch).toBe(1);
+    expect(sc.designReturns).toEqual({ design_wrong: 1 });
+  });
+
+  it("차이 비율 분포, Figma 호출, 기기·빌드·플로우 시간", () => {
+    expect(sc.diffs.find((d) => d.platform === "android")).toMatchObject({ count: 3, min: 2.2, median: 3.1, max: 7.2, over: 1, buckets: { "2~5%": 2, "5~10%": 1 } });
+    expect(sc.diffs.find((d) => d.platform === "web")).toMatchObject({ count: 3, max: 1.4, buckets: { "1% 이하": 2, "1~2%": 1 } });
+    expect(sc.figmaByNode).toEqual([{ node: "N03F", read: 12, write: 5 }]);
+    expect(sc.boots).toEqual([31]);
+    expect(sc.builds).toEqual([{ platform: "android", count: 1, avgSeconds: 200, maxSeconds: 200 }]);
+    expect(sc.flows.map((f) => `${f.platform}:${f.avgSeconds}`)).toEqual(["android:9.5", "web:2.5"]);
+    const text = renderReport(buildReport(screenEvents, nodes));
+    expect(text).toContain("## 화면 기능 (조각 3)");
+    expect(text).toContain("N26F 첫 통과: android 1/2, web 2/2 · ui_mismatch로 N24에 보냄 1번");
+    expect(text).toContain("| android | 3 | 2.2% | 3.1% | 7.2% | 1 | 0 | 0 | 2 | 1 | 0 |");
+  });
+
+  it("화면 기록이 없으면 그 칸을 쓰지 않는다", () => {
+    expect(buildReport(events, nodes).screens).toBeNull();
+    expect(renderReport(buildReport(events, nodes))).not.toContain("화면 기능 (조각 3)");
+  });
+});
