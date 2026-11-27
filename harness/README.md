@@ -37,8 +37,8 @@
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 1 | 시험 프로젝트 `login-app`(서버 + Expo 앱 뼈대), 로컬 빌드, `4dd device`, Maestro·Playwright 연기 시험 | 끝 (기기 30초, Android 빌드 3분 20초, Maestro 7초, 웹 1.2초) |
-| 2 | 기능마다 작업 유형, `platforms`, 플랫폼별 인수 테스트 파일 규칙, `applies_to` | 다음 |
-| 3 | 작업 세션에 Figma 열기, 노드별 허용 도구, `4dd figma check` | |
+| 2 | 기능마다 작업 유형, `platforms`, 플랫폼별 인수 테스트 파일 규칙, `applies_to` | 끝 (디자인 노드 정의와 관문 넷, 픽스처 스크립트로 Android 130초·웹 12초) |
+| 3 | 작업 세션에 Figma 열기, 노드별 허용 도구, `4dd figma check` | 다음 |
 | 4 | N00F 디자인 시스템 | |
 | 5 | N03W·N03F, 검토 페이지의 화면 | |
 | 6 | `4dd figma pin` | |
@@ -77,6 +77,7 @@ src/report.ts               4dd report: 개선 지표와 반복 실수·비효�
 src/plan.ts                 Stage 0·1의 산출물 읽기: 칸, 물을 것, 스프린트, 검토·패킷 해시 (조각 2)
 src/po.ts                   PO 창구의 사람 명령: 4dd story, 4dd review, 검토 승인·되돌림 (조각 2)
 src/device.ts               가상 기기 띄우기·끄기 (4dd device, 조각 3)
+src/design.ts               디자인 산출물 형식과 관문 검사: 토큰, Code Connect, 화면 상태, 프레임 (조각 3)
 src/review.ts               검토 페이지 HTML (N04 스펙·시나리오, N15 목표·백로그·설계)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
