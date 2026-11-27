@@ -160,6 +160,7 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
     ...featureField,
     result: gate.passed ? "pass" : "fail",
     ...(c ? { cause: c.cause } : !gate.passed && gate.cause ? { cause: gate.cause } : {}),
+    ...(c?.next ? { next: c.next, ...(c.then ? { then: c.then } : {}) } : {}),
     ...(t?.tokens ? { tokens: t.tokens } : {}),
     ...(t?.costUsd !== undefined ? { cost_usd: t.costUsd } : {}),
     minutes,

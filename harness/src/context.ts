@@ -250,8 +250,9 @@ function screenWork(root: string, trace: FeatureTrace, task: string, nodeId: str
   }
   lines.push(
     "",
-    "#### 디자인 시스템 (고칠 수 없음, 이것만 씀)",
-    `- 테마: \`${THEME_FILE}\` (값은 \`${TOKENS_FILE}\`에서 옴). 고정 색·간격·글자 크기를 쓰지 않습니다.`,
+    "#### 디자인 시스템 (이것만 씀)",
+    `- 테마: \`${THEME_FILE}\` (값은 \`${TOKENS_FILE}\`에서 옴, 고칠 수 없음). 고정 색·간격·글자 크기를 쓰지 않습니다.`,
+    "- 부품 코드는 플랫폼에서 Figma대로 그려지게 고칠 수 있습니다(구현 노드). 값은 늘 테마에서 가져옵니다.",
     ...(parts.length ? [`- 부품: ${parts.map((p) => `${p.component} \`${p.code}\``).join(", ")}`] : []),
   );
   try {

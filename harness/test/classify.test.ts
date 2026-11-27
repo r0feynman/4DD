@@ -65,3 +65,24 @@ describe("실패 원인 분류", () => {
     expect(classifyPrompt("N28", "T1", ["code_bug", "env"], "요약")).toContain("확실하지 않으면 code_bug");
   });
 });
+
+describe("N26F 화면 비교의 고칠 곳 (조각 3)", () => {
+  const f = { ...base, nodeId: "N26F", gateSummary: "N26F 관문 실패\n- android S15: 차이 79.64% (허용 5%) 넘음" };
+  it("찍은 화면이 앱이 아니면 code_bug + flow로 골라 N22(플로우) 뒤 N26으로 간다", () => {
+    const a = answering({ cause: "code_bug", evidence: "홈 화면이 찍힘. hideKeyboard가 앱을 닫음", fix_in: "flow" });
+    const r = classifyFailure({ ...f, adapter: a });
+    expect(r).toMatchObject({ cause: "code_bug", next: "N22", then: "N26", needsHuman: false });
+    expect(r.evidence).toContain("플로우(인수 테스트)를 고침");
+    expect(a.reqs[0].jsonSchema).toMatchObject({ required: ["cause", "evidence", "fix_in"] });
+    expect(a.reqs[0].prompt).toContain("홈 화면");
+  });
+
+  it("앱을 고칠 code_bug나 다른 원인이면 정해진 경로 그대로", () => {
+    expect(classifyFailure({ ...f, adapter: answering({ cause: "code_bug", evidence: "앱이 죽음", fix_in: "app" }) }).next).toBeUndefined();
+    expect(classifyFailure({ ...f, adapter: answering({ cause: "ui_mismatch", evidence: "입력칸이 높음", fix_in: "flow" }) }).next).toBeUndefined();
+  });
+
+  it("고칠 곳을 고르지 않는 노드(N26)의 형식에는 fix_in이 없다", () => {
+    expect(classifySchema(["code_bug"]).required).toEqual(["cause", "evidence"]);
+  });
+});

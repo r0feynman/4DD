@@ -241,7 +241,7 @@ N24:
   actor: worker
   instruction: instructions/N24.md
   reads: [task, requirements, scenarios, design, screens, last_gate, hint]
-  writes: ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/ui/**", "!mobile/assets/fonts/**", "!mobile/app.json"]   # 앱 코드는 mobile/ 어디든 설계대로. 디자인 시스템(theme.ts, ui/, 글꼴)과 앱 ID(app.json)는 고치지 않음 (조각 3, G10)
+  writes: ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/assets/fonts/**", "!mobile/app.json", "!mobile/metro.config.js"]   # 앱 코드는 mobile/ 어디든 설계대로. 부품 코드(ui/)는 플랫폼에서 Figma대로 그려지게 고칠 수 있음(2026-11-27 오너 결정). 값(theme.ts), 글꼴, 앱 ID, 번들러 설정은 고치지 않음 (조각 3, G10)
   gate:
     run: "{commands.unit}"
     expect: pass
@@ -254,7 +254,7 @@ N25:
   actor: worker
   instruction: instructions/N25.md
   reads: [task, design, screens, last_gate, hint]
-  writes: ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/ui/**", "!mobile/assets/fonts/**", "!mobile/app.json"]   # 앱 코드는 mobile/ 어디든 설계대로. 디자인 시스템(theme.ts, ui/, 글꼴)과 앱 ID(app.json)는 고치지 않음 (조각 3, G10)
+  writes: ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/assets/fonts/**", "!mobile/app.json", "!mobile/metro.config.js"]   # 앱 코드는 mobile/ 어디든 설계대로. 부품 코드(ui/)는 플랫폼에서 Figma대로 그려지게 고칠 수 있음(2026-11-27 오너 결정). 값(theme.ts), 글꼴, 앱 ID, 번들러 설정은 고치지 않음 (조각 3, G10)
   gate:
     run: "{commands.unit}"
     expect: pass

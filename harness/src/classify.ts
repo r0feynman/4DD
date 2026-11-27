@@ -23,11 +23,23 @@ export const CAUSE_MEANING: Record<Cause, string> = {
   budget_exceeded: "횟수 제한 초과",
 };
 
-export function classifySchema(causes: Cause[]) {
+/**
+ * code_bug일 때 고칠 곳을 더 고르는 노드 (조각 3, 2026-11-27 실제 실행).
+ * N26F에서 찍은 화면이 앱의 끝 화면이 아니면(앱이 닫혀 홈 화면이 찍힘) 앱이 아니라 플로우를 고쳐야 한다.
+ */
+export const CLASSIFY_FIX: Record<string, { flow: { label: string; next: string; then: string } }> = {
+  N26F: { flow: { label: "플로우(인수 테스트)를 고침 (N22 뒤 N26)", next: "N22", then: "N26" } },
+};
+
+export function classifySchema(causes: Cause[], withFix = false) {
   return {
     type: "object",
-    properties: { cause: { type: "string", enum: causes }, evidence: { type: "string", maxLength: 300 } },
-    required: ["cause", "evidence"],
+    properties: {
+      cause: { type: "string", enum: causes },
+      evidence: { type: "string", maxLength: 300 },
+      ...(withFix ? { fix_in: { type: ["string", "null"], enum: ["app", "flow", null] } } : {}),
+    },
+    required: ["cause", "evidence", ...(withFix ? ["fix_in"] : [])],
     additionalProperties: false,
   };
 }
@@ -39,7 +51,8 @@ const CLASSIFY_HINT: Record<string, string> = {
     "- 프레임대로 고치면 맞출 수 있으면(색, 간격, 글자 크기, 문구, 배치) `ui_mismatch`",
     "- 화면에 나와야 할 상태 자체가 틀리면(로그인이 안 됨, 안내가 안 나옴) `code_bug`",
     "- 프레임 자체가 틀려서 프레임대로는 구현할 수 없으면 `design_wrong` (사람 승인). 구현을 고치는 대신 프레임을 바꿔 통과하려는 것이면 안 됩니다",
-    "- 찍은 화면이 없거나 크기가 다르면 플로우나 빌드 문제이므로 `code_bug`",
+    "- 찍은 화면이 앱의 끝 화면이 아니거나(홈 화면, 다른 화면, 키보드가 가림), 찍은 화면이 없거나 크기가 다르면 `code_bug`입니다. 이때 고칠 곳(`fix_in`)도 고릅니다: 플로우가 앱을 닫거나 엉뚱한 때에 찍었으면 `flow`(N22에서 플로우를 고침), 앱이 뜨지 않거나 죽었으면 `app`",
+    "- 그 밖의 `code_bug`는 `fix_in`을 `app`으로 둡니다. 다른 원인이면 `fix_in`은 null",
   ].join("\n"),
 };
 
@@ -60,6 +73,9 @@ export function classifyPrompt(nodeId: string, task: string, causes: Cause[], ga
 
 export interface ClassifyResult {
   cause: Cause;
+  /** 고칠 곳이 정해진 경로와 다를 때 갈 노드와 그 뒤 노드 (N26F의 플로우 문제 → N22 → N26) */
+  next?: string;
+  then?: string;
   by: "harness" | "agent";
   needsHuman: boolean;
   evidence: string;
@@ -105,12 +121,20 @@ export function classifyFailure(opts: ClassifyOptions): ClassifyResult {
     env: { FOURDD_ROOT: opts.root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: opts.runId },
     timeoutMs: opts.timeoutMs ?? nodes.defaults.turn_timeout_min * 60_000,
     readOnly: true,
-    jsonSchema: classifySchema(causes),
+    jsonSchema: classifySchema(causes, !!CLASSIFY_FIX[nodeId]),
   });
   // 분류 차례에서 파일을 고쳤으면 되돌린다 (판단 노드는 아무것도 고칠 수 없다).
   checkDiff(opts.root, nodeId, opts.runId, true, nodes);
-  const picked = (turn.structured ?? {}) as { cause?: unknown; evidence?: unknown };
+  const picked = (turn.structured ?? {}) as { cause?: unknown; evidence?: unknown; fix_in?: unknown };
   const cause = typeof picked.cause === "string" && (causes as string[]).includes(picked.cause) ? (picked.cause as Cause) : fallback;
   const evidence = typeof picked.evidence === "string" ? picked.evidence.slice(0, 300) : "";
-  return { cause, by: turn.ok && cause === picked.cause ? "agent" : "harness", needsHuman: needsHuman(nodes, nodeId, cause), evidence, turn };
+  const fix = cause === "code_bug" && picked.fix_in === "flow" ? CLASSIFY_FIX[nodeId]?.flow : undefined;
+  return {
+    cause,
+    by: turn.ok && cause === picked.cause ? "agent" : "harness",
+    needsHuman: needsHuman(nodes, nodeId, cause),
+    evidence: fix ? `${evidence} → ${fix.label}` : evidence,
+    ...(fix ? { next: fix.next, then: fix.then } : {}),
+    turn,
+  };
 }

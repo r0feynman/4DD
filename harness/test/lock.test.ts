@@ -48,16 +48,15 @@ describe("세션이 고칠 수 있는 곳", () => {
     expect(canSessionWrite(ROOT, n24, "../other/src/a.ts").allowed).toBe(false);
   });
 
-  it("구현 노드는 mobile/ 어디든 고치되 디자인 시스템과 앱 ID는 못 고친다 (조각 3)", () => {
+  it("구현 노드는 mobile/ 어디든(부품 코드 포함) 고치되 값·글꼴·앱 ID·번들러 설정은 못 고친다 (조각 3, 2026-11-27 오너 결정)", () => {
     for (const id of ["N24", "N25"]) {
       const n = getNode(nodes, id);
-      expect(canSessionWrite(ROOT, n, "/p/mobile/login/api.ts").allowed).toBe(true);
-      expect(canSessionWrite(ROOT, n, "/p/mobile/App.tsx").allowed).toBe(true);
-      for (const f of ["mobile/theme.ts", "mobile/ui/Button.tsx", "mobile/assets/fonts/NotoSansKR-Regular.ttf", "mobile/app.json"]) {
+      for (const f of ["mobile/login/api.ts", "mobile/App.tsx", "mobile/ui/TextField.tsx"]) expect(canSessionWrite(ROOT, n, `/p/${f}`).allowed, `${id} ${f}`).toBe(true);
+      for (const f of ["mobile/theme.ts", "mobile/assets/fonts/NotoSansKR-Regular.ttf", "mobile/app.json", "mobile/metro.config.js"]) {
         expect(canSessionWrite(ROOT, n, `/p/${f}`).allowed, `${id} ${f}`).toBe(false);
       }
     }
-    expect(canSessionWrite(ROOT, n24, "/p/mobile/ui/Button.tsx").reason).toContain("(빼고: `mobile/theme.ts`");
+    expect(canSessionWrite(ROOT, n24, "/p/mobile/theme.ts").reason).toContain("(빼고: `mobile/theme.ts`");
   });
 
   it("리뷰 세션은 아무것도 고칠 수 없다", () => {
