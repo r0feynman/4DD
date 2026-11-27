@@ -65,6 +65,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     turns: z.number().int().min(0).optional(),
     /** 이어 쓴 세션의 누적 표시 가격 (cost_usd는 이번 차례 몫만). 다음 차례가 이 값을 빼서 자기 몫을 낸다 */
     session_cost: z.strictObject({ session: z.string().min(1), usd: z.number().min(0) }).optional(),
+    /** 리뷰 세션 노드(N27)의 세션. 작업 세션(session)과 따로 두어, 다음 작업 노드가 리뷰 세션을 이어 쓰지 않게 한다 */
+    review_session: z.string().min(1).optional(),
     /** Figma 도구를 부른 수 (조각 3: 하루 읽기 한도 안에 드는지) */
     figma_calls: z.strictObject({ read: z.number().int().min(0), write: z.number().int().min(0) }).optional(),
   }),

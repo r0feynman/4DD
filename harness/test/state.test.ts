@@ -23,6 +23,29 @@ const T1_FAIL_AT_N26: NewEvent[] = [
   { type: "node_end", id: "NR3", node: "N26", task: "T1", result: "fail", cause: "code_bug", minutes: 1 },
 ];
 
+describe("리뷰 세션은 작업 세션이 아니다 (2026-11-27 Codex 실제 실행)", () => {
+  const base: NewEvent[] = [
+    { type: "run_start", run: "RUN1", agent: "codex", feature: "login" },
+    { type: "node_start", id: "NR2", node: "N22", task: "T1", session: null },
+    { type: "node_end", id: "NR2", node: "N22", task: "T1", result: "pass", session: "work", minutes: 1 },
+  ];
+  it("새 기록: N27의 review_session은 작업 세션을 바꾸지 않는다", () => {
+    const root = project();
+    write(root, [...base, { type: "node_end", id: "NR3", node: "N27", task: "T1", result: "fail", review_session: "review-1", minutes: 1 }]);
+    expect(rebuildState(readEvents(root).events)).toMatchObject({ session: "work", review_sessions: ["review-1"] });
+  });
+
+  it("예전 원장: N27의 session과, 그 세션을 이어 쓴 뒤 노드의 session을 건너뛰어 작업 세션으로 돌아간다", () => {
+    const root = project();
+    write(root, [
+      ...base,
+      { type: "node_end", id: "NR3", node: "N27", task: "T1", result: "fail", session: "review-1", minutes: 1 },
+      { type: "node_end", id: "NR4", node: "N23", task: "T1", result: "fail", session: "review-1", minutes: 1 },
+    ]);
+    expect(rebuildState(readEvents(root).events).session).toBe("work");
+  });
+});
+
 describe("원장에서 상태 만들기", () => {
   it("처음 상태", () => {
     expect(initialState()).toMatchObject({ status: "idle", task: null, node: null, events: 0 });

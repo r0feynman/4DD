@@ -11,7 +11,8 @@ import { GATE_DIR, REVIEW_NOTE_HEAD, runGate, type GateOutcome } from "./gate.ts
 import { checkDiff } from "./guard.ts";
 import { appendEvent, nextId, readEvents } from "./ledger.ts";
 import { ledgerIntact, ledgerSnapshot } from "./lock.ts";
-import { getNode, sessionScope, type Cause, type NodeDef, type NodeSet } from "./nodes.ts";
+import { getNode, resolveWrites, sessionScope, type Cause, type NodeDef, type NodeSet } from "./nodes.ts";
+import { matchesAny } from "./glob.ts";
 import { loadState, type State } from "./state.ts";
 import type { LedgerEvent } from "./ledger.ts";
 
@@ -241,6 +242,13 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
 
   let cause: Cause | undefined;
   const notes: string[] = [];
+  if (verdict?.fixIn) {
+    const corrected = correctFixIn(verdict, nodes, root);
+    if (corrected && corrected !== verdict.fixIn) {
+      notes.push(`리뷰는 고칠 곳을 ${verdict.fixIn}(${FIX_WRITER[verdict.fixIn]})로 골랐지만 그 노드는 지적한 파일을 고칠 수 없어, ${corrected}(${FIX_WRITER[corrected]})로 보냅니다`);
+      verdict.fixIn = corrected;
+    }
+  }
   if (!turn.ok) {
     cause = "env";
     notes.push(`리뷰 세션이 실패했습니다: ${turn.error ?? "알 수 없는 오류"}`);
@@ -270,7 +278,10 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
     result: stop ? "wait" : passed ? "pass" : "fail",
     ...(cause && !passed ? { cause } : {}),
     ...(nextOverride ? { next: nextOverride, then: route?.then ?? "N26" } : {}),
-    session: turn.sessionId,
+    // 리뷰 세션은 작업 세션이 아니다: session에 두면 다음 작업 노드가 이어 써, Codex는 읽기 전용 샌드박스에 갇힌다
+    ...(turn.sessionId ? { review_session: turn.sessionId } : {}),
+    // 매번 새 세션이므로 그 차례 금액이 그대로 몫이다
+    ...(turn.sessionId && turn.costUsd !== undefined ? { session_cost: { session: turn.sessionId, usd: turn.costUsd } } : {}),
     loaded: ctx.loaded,
     ...(turn.tokens ? { tokens: turn.tokens } : {}),
     ...(turn.costUsd !== undefined ? { cost_usd: turn.costUsd } : {}),
@@ -296,6 +307,28 @@ function safeJson(text: string): unknown {
 
 function passed0(stop: string | undefined, ok: boolean, verdict: ReviewVerdict | null, violations: number): boolean {
   return !stop && ok && !!verdict?.pass && violations === 0;
+}
+
+type FixIn = NonNullable<ReviewVerdict["fixIn"]>;
+/** 고칠 곳마다 그 파일을 실제로 고치는 노드 (경로의 첫 노드와 다를 수 있음: behavior는 N23부터 가서 N24가 고침) */
+export const FIX_WRITER: Record<FixIn, string> = { behavior: "N24", structure: "N25", acceptance_test: "N22", unit_test: "N23" };
+
+/**
+ * 리뷰가 고른 고칠 곳의 노드가 지적한 파일을 하나도 고칠 수 없으면, 그 파일을 모두 고칠 수 있는 곳으로 바로잡는다.
+ * 참고로만 적은 지적은 세지 않는다. (2026-11-27 Codex 실제 실행: tests/e2e의 파일 위치를 structure(N25)로 보냈는데 N25는 tests/를 고칠 수 없음)
+ */
+export function correctFixIn(verdict: ReviewVerdict, nodes: NodeSet, root = ""): FixIn | null {
+  if (!verdict.fixIn) return null;
+  const files = verdict.findings
+    .filter((f) => !/^\s*참고/.test(f.why))
+    .map((f) => (root && f.file.startsWith(`${root}/`) ? f.file.slice(root.length + 1) : f.file).replace(/:\d+$/, ""))
+    .filter(Boolean);
+  // 테스트가 없다는 지적(unit_test, acceptance_test)은 테스트할 코드(src/)를 가리키기도 하므로 바로잡지 않는다.
+  // 코드를 고치는 경로(structure, behavior)가 테스트 파일만 가리킬 때만 그 테스트를 쓰는 노드로 보낸다
+  if (!files.length || (verdict.fixIn !== "structure" && verdict.fixIn !== "behavior")) return verdict.fixIn;
+  const writable = (fix: FixIn) => files.filter((f) => matchesAny(f, resolveWrites(getNode(nodes, FIX_WRITER[fix]), null))).length;
+  if (writable(verdict.fixIn) > 0) return verdict.fixIn;
+  return (["acceptance_test", "unit_test"] as const).find((f) => writable(f) === files.length) ?? verdict.fixIn;
 }
 
 /** 리뷰가 정한 고칠 곳별 경로 */

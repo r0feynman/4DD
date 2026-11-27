@@ -27,6 +27,11 @@ export interface State {
   node_run: string | null;
   /** 작업 세션 ID. 같은 작업 안에서는 이어 쓰고, 작업이 바뀌면 비운다 */
   session: string | null;
+  /**
+   * 리뷰 세션 ID (최근 것 몇 개). 작업 세션으로 쓰지 않는다 (2026-11-27 Codex 실제 실행: 리뷰가 실패한 뒤 작업 노드가
+   * 리뷰 세션을 이어 써, Codex는 리뷰의 읽기 전용 샌드박스에서 아무것도 고치지 못함). 예전 원장은 N27 node_end의 session이 리뷰 세션이다
+   */
+  review_sessions?: string[];
   /** Stage 0·1을 도는 기능 (스토리를 받았고 패킷 1 → 2가 아직 없음). 작업이 없는 동안의 일감 (조각 2) */
   planning: string | null;
   /** 지금 작업에서 노드별 연속 실패 수. 통과하면 0 */
@@ -104,12 +109,14 @@ export function reduce(prev: State, e: LedgerEvent): State {
       else if (e.feature) enterPlanning(s, e.feature);
       s.node = e.node;
       s.node_run = e.id;
-      if (e.session) s.session = e.session;
+      if (e.session && !(s.review_sessions ?? []).includes(e.session)) s.session = e.session;
       break;
-    case "node_end":
+    case "node_end": {
       if (e.task) enterTask(s, e.task);
       else if (e.feature) enterPlanning(s, e.feature);
-      if (e.session) s.session = e.session;
+      const review = e.review_session ?? (e.node === "N27" ? e.session : undefined);
+      if (review) s.review_sessions = [...(s.review_sessions ?? []), review].slice(-20);
+      else if (e.session && !(s.review_sessions ?? []).includes(e.session)) s.session = e.session;
       if (e.result === "fail") {
         s.fails[e.node] = (s.fails[e.node] ?? 0) + 1;
         s.task_backtracks += 1;
@@ -125,6 +132,7 @@ export function reduce(prev: State, e: LedgerEvent): State {
         s.last_gate = null;
       }
       break;
+    }
     case "gate_run":
       s.last_gate = e.result === "fail" ? e.id : null;
       break;

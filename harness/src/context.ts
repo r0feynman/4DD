@@ -311,7 +311,7 @@ export function stage2Writes(nodes: NodeSet, feature: string | null): string {
   return [
     "### Stage 2에서 고칠 수 있는 곳",
     "설계가 만들거나 바꾸라고 정하는 파일은 모두 아래 노드 가운데 하나가 고칠 수 있는 곳이어야 합니다. 표 밖(루트 `package.json`, `scripts/`, 설정 파일, `specs/`, `design/`)은 Stage 2에서 아무도 고칠 수 없으므로 바꾸라고 정하지 않습니다. 시험을 돌리는 명령과 스크립트는 이미 정해져 있습니다.",
-    "앱 코드(`src/`, `mobile/`)는 시험 파일(`tests/`)을 불러오지 않습니다. 인수 테스트의 공용 파일(픽스처, 공용 함수)은 `tests/e2e/`·`tests/acceptance/` 아래에 두고 N22가 만듭니다.",
+    "앱 코드(`src/`, `mobile/`)는 시험 파일(`tests/`)을 불러오지 않습니다. 인수 테스트의 공용 파일(픽스처, 공용 함수, Maestro가 부르는 스크립트)은 `tests/e2e/android/lib/`, `tests/e2e/web/lib/`, `tests/acceptance/lib/`에 두고 N22가 만듭니다. 플랫폼 폴더 맨 위의 플로우·테스트 파일은 모두 시나리오로 돌기 때문입니다.",
     "",
     "| 노드 | 고칠 수 있는 곳 |",
     "|---|---|",
