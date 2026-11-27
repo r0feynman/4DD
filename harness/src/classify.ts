@@ -26,9 +26,12 @@ export const CAUSE_MEANING: Record<Cause, string> = {
 /**
  * code_bug일 때 고칠 곳을 더 고르는 노드 (조각 3, 2026-11-27 실제 실행).
  * N26F에서 찍은 화면이 앱의 끝 화면이 아니면(앱이 닫혀 홈 화면이 찍힘) 앱이 아니라 플로우를 고쳐야 한다.
+ * N26에서 플로우 스크립트가 앱을 만지기 전에 깨지면(Maestro http.post에 본문이 없음) 구현 노드는 고칠 수 없다.
  */
+const FLOW_FIX = { flow: { label: "플로우(인수 테스트)를 고침 (N22 뒤 N26)", next: "N22", then: "N26" } };
 export const CLASSIFY_FIX: Record<string, { flow: { label: string; next: string; then: string } }> = {
-  N26F: { flow: { label: "플로우(인수 테스트)를 고침 (N22 뒤 N26)", next: "N22", then: "N26" } },
+  N26: FLOW_FIX,
+  N26F: FLOW_FIX,
 };
 
 export function classifySchema(causes: Cause[], withFix = false) {
@@ -46,6 +49,12 @@ export function classifySchema(causes: Cause[], withFix = false) {
 
 /** 노드별로 원인을 고를 때 볼 것 (조각 3: 화면 비교는 이미지를 열어 봐야 가를 수 있음) */
 const CLASSIFY_HINT: Record<string, string> = {
+  N26: [
+    "관문 결과에 적힌 출력 파일(.4dd/gates/GR….log)을 Read로 열어, 플로우가 어느 단계에서 멈췄는지 봅니다.",
+    "- 앱이 스펙대로 움직이지 않으면(안내가 안 나옴, 다음 화면으로 안 감, 요소가 없음) `code_bug`, `fix_in`은 `app`",
+    "- 플로우·테스트 자체가 깨졌으면 `code_bug`, `fix_in`은 `flow`(N22에서 인수 테스트를 고침): 앱을 만지기 전에 플로우의 스크립트가 오류로 멈춤(runScript, http 호출, 문법), 한 플랫폼의 플로우만 스크립트 오류로 깨짐, 테스트가 스펙과 다른 것을 확인함",
+    "- 같은 코드인데 결과가 바뀌면 `test_flaky`. 다른 원인이면 `fix_in`은 null",
+  ].join("\n"),
   N26F: [
     "관문 결과에 적힌 세 이미지(차이 이미지, 기준 프레임, 찍은 화면)를 Read로 열어 봅니다.",
     "- 프레임대로 고치면 맞출 수 있으면(색, 간격, 글자 크기, 문구, 배치) `ui_mismatch`",

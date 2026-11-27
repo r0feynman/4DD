@@ -18,6 +18,8 @@ const ConfigSchema = z.strictObject({
     run_files: z.string().min(1).optional(),
     build: z.string().min(1).optional(),
     visual: z.string().min(1).optional(),
+    /** 작업이 package.json에 더한 패키지를 관문 전에 설치하는 명령 (그 package.json이 있는 폴더에서 돎). 없으면 npm install --no-audit --no-fund */
+    install: z.string().min(1).optional(),
     /** 화면 기능의 플랫폼별 명령 (조각 3): build는 앱을 빌드해 기기에 올림, run_files는 플로우·테스트 파일을 받아 돌림 */
     e2e: z
       .strictObject({

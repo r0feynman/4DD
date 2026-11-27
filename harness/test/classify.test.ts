@@ -38,7 +38,7 @@ describe("실패 원인 분류", () => {
     const r = classifyFailure({ ...base, adapter: a });
     expect(r).toMatchObject({ cause: "code_bug", by: "agent", needsHuman: false, evidence: "잠금 시각 계산이 틀림" });
     expect(a.reqs[0]).toMatchObject({ sessionId: "sess-T1", readOnly: true });
-    expect(a.reqs[0].jsonSchema).toEqual(classifySchema(["code_bug", "test_flaky", "spec_ambiguous", "spec_missing_state", "env"]));
+    expect(a.reqs[0].jsonSchema).toEqual(classifySchema(["code_bug", "test_flaky", "spec_ambiguous", "spec_missing_state", "env"], true));
     expect(a.reqs[0].prompt).toContain("`spec_ambiguous`: 스펙이 모호해서");
   });
 
@@ -82,7 +82,25 @@ describe("N26F 화면 비교의 고칠 곳 (조각 3)", () => {
     expect(classifyFailure({ ...f, adapter: answering({ cause: "ui_mismatch", evidence: "입력칸이 높음", fix_in: "flow" }) }).next).toBeUndefined();
   });
 
-  it("고칠 곳을 고르지 않는 노드(N26)의 형식에는 fix_in이 없다", () => {
+  it("고칠 곳을 고르지 않는 노드(N28)의 형식에는 fix_in이 없다", () => {
+    const a = answering({ cause: "code_bug", evidence: "" });
+    classifyFailure({ ...base, nodeId: "N28", adapter: a });
+    expect(a.reqs[0].jsonSchema).toEqual(classifySchema(["code_bug", "env"]));
     expect(classifySchema(["code_bug"]).required).toEqual(["cause", "evidence"]);
+  });
+});
+
+describe("N26 인수 테스트의 고칠 곳 (조각 3, 2026-11-27 실제 실행)", () => {
+  const f = { ...base, gateSummary: "N26 관문 실패\n- 명령 `npm run -s e2e:android -- tests/e2e/android/S15.yaml`이 통과해야 하는데 실패했습니다 (출력 .4dd/gates/GR13.log)" };
+  it("플로우 스크립트가 앱을 만지기 전에 깨지면 code_bug + flow로 골라 N22(플로우) 뒤 N26으로 간다", () => {
+    const a = answering({ cause: "code_bug", evidence: "background.js의 http.post에 본문이 없어 Maestro가 멈춤", fix_in: "flow" });
+    const r = classifyFailure({ ...f, adapter: a });
+    expect(r).toMatchObject({ cause: "code_bug", next: "N22", then: "N26", needsHuman: false });
+    expect(a.reqs[0].prompt).toContain("runScript, http 호출");
+    expect(a.reqs[0].prompt).toContain("Read로 열어");
+  });
+
+  it("앱이 틀리면 정해진 경로(N23) 그대로", () => {
+    expect(classifyFailure({ ...f, adapter: answering({ cause: "code_bug", evidence: "안내가 안 나옴", fix_in: "app" }) }).next).toBeUndefined();
   });
 });

@@ -85,6 +85,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     seconds: z.number().min(0).optional(),
     /** 앱 빌드 명령 ({e2e.build}) */
     build: z.boolean().optional(),
+    /** 작업이 package.json에 더한 패키지를 하네스가 설치한 명령 (조각 3) */
+    install: z.boolean().optional(),
     /** 화면 비교 한 건 (N26F): 시나리오, 다른 픽셀 비율, 허용 비율 */
     scenario: z.string().regex(/^S\d+$/).optional(),
     diff_percent: z.number().min(0).optional(),

@@ -162,6 +162,7 @@ interface RunExtra {
   /** 시간 제한을 넘어 끊었으면 그 제한(초). 원장에는 남기지 않고 요약에만 씀 */
   timedOutSec?: number;
   build?: boolean;
+  install?: boolean;
   scenario?: string;
   diff_percent?: number;
   tolerance?: number;
@@ -428,6 +429,81 @@ function planCheck(name: GateCheck, ctx: GateContext, events: LedgerEvent[]): Ga
   }
 }
 
+// ---------------------------------------------------------------- 새 패키지 설치 (조각 3)
+//
+// 작업 세션은 패키지를 설치할 수 없다 (Claude는 허용 명령 밖, Codex는 샌드박스에 네트워크가 없음, 2026-11-27 실제 실행).
+// 세션이 package.json에 적기만 하면, 하네스가 관문 전에 설치한다. 설계(design.md)에 적힌 패키지만 받는다:
+// PO가 N15에서 승인한 설계 밖의 패키지가 들어오지 않게 하기 위해서다.
+
+/** 하네스가 설치를 맡는 package.json (작업 노드의 writes가 열어 둔 것만 바뀔 수 있다) */
+export const PACKAGE_FILES = ["package.json", "mobile/package.json"];
+export const INSTALL_COMMAND = "npm install --no-audit --no-fund";
+export const INSTALL_TIMEOUT_MS = 10 * 60_000;
+
+type Deps = Record<string, string>;
+function readDeps(text: string | null): Deps | null {
+  if (text === null) return null;
+  try {
+    const pkg = JSON.parse(text) as { dependencies?: Deps; devDependencies?: Deps };
+    return { ...(pkg.devDependencies ?? {}), ...(pkg.dependencies ?? {}) };
+  } catch {
+    return null;
+  }
+}
+
+/** 마지막 커밋과 비교해 package.json의 패키지가 바뀌었으면 새로 더한 이름과 함께 돌려준다 */
+export function dependencyChange(root: string, file: string): { added: string[] } | null {
+  if (!existsSync(join(root, file))) return null;
+  const head = spawnSync("git", ["show", `HEAD:${file}`], { cwd: root, encoding: "utf8" });
+  const before = readDeps(head.status === 0 ? head.stdout : null);
+  const after = readDeps(readFileSync(join(root, file), "utf8"));
+  if (!before || !after) return null;
+  const names = new Set([...Object.keys(before), ...Object.keys(after)]);
+  if ([...names].every((n) => before[n] === after[n])) return null;
+  return { added: Object.keys(after).filter((n) => !(n in before)) };
+}
+
+/** 설계 글에 패키지 이름이 그대로 적혀 있는가 (다른 이름의 일부로 들어간 것은 치지 않음) */
+export function designMentions(design: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w@/.-])${escaped}($|[^\\w/.-])`).test(design);
+}
+
+function installDependencies(ctx: GateContext): { ok: boolean; runs: GateRunResult[]; lines: string[]; cause?: Cause } {
+  const runs: GateRunResult[] = [];
+  const changed = PACKAGE_FILES.map((file) => ({ file, change: dependencyChange(ctx.root, file) })).filter((x) => x.change);
+  if (!changed.length) return { ok: true, runs, lines: [] };
+  const feature = ctx.feature ?? (ctx.task ? featureOfTask(ctx.root, ctx.task) : null);
+  const designFile = feature ? featurePath(feature, "design.md") : null;
+  const design = designFile ? (readText(ctx.root, designFile) ?? "") : "";
+  const outside = changed.flatMap(({ file, change }) => change!.added.filter((n) => !designMentions(design, n)).map((n) => ({ file, name: n })));
+  if (outside.length) {
+    const list = outside.map((o) => `\`${o.name}\`(${o.file})`).join(", ");
+    return {
+      ok: false,
+      runs,
+      lines: [`설계(${designFile ?? "design.md"})에 없는 패키지를 더했습니다: ${list}. 설계(N13)가 정한 패키지만 더할 수 있습니다. 그 패키지 없이 구현하거나, 설계가 틀렸다면 arch_wrong입니다`],
+    };
+  }
+  const install = ctx.config.commands.install ?? INSTALL_COMMAND;
+  for (const { file } of changed) {
+    const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
+    const command = dir === "." ? install : `cd ${dir} && ${install}`;
+    const r = runCommand(ctx.root, command, INSTALL_TIMEOUT_MS);
+    const run = record(ctx, command, r.exit, r.exit === 0 ? "pass" : "fail", false, r.output, undefined, { seconds: r.seconds, install: true });
+    runs.push(run);
+    if (r.exit !== 0) {
+      // 이름이나 판이 틀렸으면 세션이 고칠 수 있다. 그 밖(네트워크, 디스크)은 실행 환경 문제
+      const fixable = /ETARGET|E404|notarget|No matching version|404 Not Found|ERESOLVE/i.test(r.output);
+      const why = fixable
+        ? "패키지 이름이나 판이 틀렸습니다. Expo 패키지는 mobile/node_modules/expo/bundledNativeModules.json에 적힌 판을 씁니다"
+        : "실행 환경 문제입니다 (env: 네트워크나 npm 설정을 봐야 함)";
+      return { ok: false, runs, ...(fixable ? {} : { cause: "env" as const }), lines: [`패키지 설치 \`${command}\`가 실패했습니다 (종료 코드 ${r.exit}, 출력 ${run.log}). ${why}`] };
+    }
+  }
+  return { ok: true, runs, lines: [] };
+}
+
 export function runGate(ctx: GateContext): GateOutcome {
   const node = getNode(ctx.nodes, ctx.nodeId);
   const gate = node.gate;
@@ -472,7 +548,15 @@ export function runGate(ctx: GateContext): GateOutcome {
     (gate.reentry === "any" &&
       !!ctx.task &&
       readEvents(ctx.root).events.some((e) => e.type === "node_end" && e.task === ctx.task && e.node === "N24" && e.result === "pass"));
-  const runs: GateRunResult[] = [];
+  // 작업이 package.json에 더한 패키지를 먼저 설치한다 (설계에 적힌 것만)
+  const deps = ctx.task ? installDependencies(ctx) : undefined;
+  if (deps && !deps.ok) {
+    const summary = `${ctx.nodeId} 관문 실패\n- ${deps.lines.join("\n- ")}`;
+    mkdirSync(join(ctx.root, GATE_DIR), { recursive: true });
+    writeFileSync(join(ctx.root, GATE_DIR, `${ctx.runId}.summary.md`), summary + "\n", "utf8");
+    return { node: ctx.nodeId, passed: false, ...(deps.cause ? { cause: deps.cause } : {}), runs: deps.runs, checks: [], summary };
+  }
+  const runs: GateRunResult[] = [...(deps?.runs ?? [])];
   let cause: Cause | undefined;
   const brokenBuild = new Set<Platform>();
   // 처음엔 실패해야 하는 노드(N22)는 앱 코드를 고칠 수 없다. 그때 빌드가 깨져 있으면 다시 해도 소용없으므로 사람에게 넘긴다 (2026-11-27 실제 실행)
