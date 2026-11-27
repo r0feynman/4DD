@@ -74,13 +74,24 @@ export function childEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 
 const minutesSince = (t0: number) => Math.round(((Date.now() - t0) / 60_000) * 100) / 100;
 
+/** 명령을 띄우지도 못했으면(명령 없음, 인자가 너무 김) 그 이유. 결과 JSON이 없다는 말만으로는 원인을 알 수 없다 */
+function spawnError(cmd: string, r: { error?: Error }): { error: string } | undefined {
+  const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+  if (!r.error || code === "ETIMEDOUT") return undefined;
+  return { error: `${cmd}를 띄우지 못했습니다 (${code ?? r.error.message})` };
+}
+
 // ---------------------------------------------------------------- Claude
 
 /** 작업 세션이 셸로 할 수 있는 것. 테스트를 돌리고 파일을 살펴보는 정도만 허용한다. */
 export const CLAUDE_ALLOWED_BASH = ["npx vitest *", "npm test *", "npm test", "npm run *", "ls *", "ls", "cat *", "git status *", "git status", "git diff *", "git diff", "git log *"];
 
+/**
+ * 지시문은 인자가 아니라 표준 입력으로 넘긴다 (조각 3, 2026-11-27 실제 실행: 큰 작업의 리뷰 지시문이 141KB가 되자
+ * Linux가 인자 하나를 128KB까지만 받아 명령이 뜨지 못했다). 그래서 인자에는 지시문이 없다
+ */
 export function claudeArgs(req: TurnRequest, sessionId: string, resume: boolean): string[] {
-  const args = ["-p", req.prompt, "--output-format", "json"];
+  const args = ["-p", "--output-format", "json"];
   args.push(...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]));
   // 오너의 전역 설정(전역 훅, MCP 서버, 플러그인)이 하네스 세션에 섞이지 않게 한다. 하네스 훅은 --settings로 넣는다.
   args.push("--setting-sources", "project", "--settings", join(req.root, ".4dd", "hooks", "claude.json"));
@@ -136,6 +147,7 @@ export const claudeAdapter: Adapter = {
     const r = spawnSync("claude", claudeArgs(req, sessionId, resume), {
       cwd: req.root,
       encoding: "utf8",
+      input: req.prompt,
       timeout: req.timeoutMs,
       env: childEnv(req.env),
       maxBuffer: 64 * 1024 * 1024,
@@ -148,7 +160,7 @@ export const claudeAdapter: Adapter = {
       ok: parsed.ok && !timedOut,
       minutes: minutesSince(t0),
       timedOut,
-      ...(timedOut ? { error: "차례 시간 제한을 넘었습니다" } : parsed.error ? {} : r.status !== 0 ? { error: `claude 종료 코드 ${r.status}: ${(r.stderr ?? "").slice(0, 300)}` } : {}),
+      ...(timedOut ? { error: "차례 시간 제한을 넘었습니다" } : spawnError("claude", r) ?? (parsed.error ? {} : r.status !== 0 ? { error: `claude 종료 코드 ${r.status}: ${(r.stderr ?? "").slice(0, 300)}` } : {})),
     };
   },
 };
@@ -177,7 +189,8 @@ export function codexArgs(req: TurnRequest, schemaFile: string | null, servers: 
   if (!req.sessionId) args.push("-C", req.root, "-s", req.readOnly ? "read-only" : "workspace-write");
   if (schemaFile) args.push("--output-schema", schemaFile);
   args.push(...codexMcpOverrides(req, servers));
-  args.push(req.prompt);
+  // 지시문은 표준 입력으로 (「-」). 인자 하나는 128KB까지라 큰 지시문이면 명령이 뜨지 못한다
+  args.push("-");
   return args;
 }
 
@@ -263,6 +276,7 @@ export const codexAdapter: Adapter = {
     const r = spawnSync("codex", codexArgs(req, schemaFile, codexMcpServers()), {
       cwd: req.root,
       encoding: "utf8",
+      input: req.prompt,
       timeout: req.timeoutMs,
       env: childEnv(req.env),
       maxBuffer: 64 * 1024 * 1024,
@@ -275,7 +289,7 @@ export const codexAdapter: Adapter = {
       ok: parsed.ok && !timedOut,
       minutes: minutesSince(t0),
       timedOut,
-      ...(timedOut ? { error: "차례 시간 제한을 넘었습니다" } : parsed.error ? {} : r.status !== 0 ? { error: `codex 종료 코드 ${r.status}: ${(r.stderr ?? "").slice(-300)}` } : {}),
+      ...(timedOut ? { error: "차례 시간 제한을 넘었습니다" } : spawnError("codex", r) ?? (parsed.error ? {} : r.status !== 0 ? { error: `codex 종료 코드 ${r.status}: ${(r.stderr ?? "").slice(-300)}` } : {})),
     };
   },
 };

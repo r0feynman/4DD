@@ -6,7 +6,8 @@ const req: TurnRequest = { root: "/p", prompt: "할 일", sessionId: null, env: 
 describe("Claude 어댑터", () => {
   it("새 세션은 --session-id, 이어 쓰기는 --resume", () => {
     const a = claudeArgs(req, "u-1", false);
-    expect(a.slice(0, 4)).toEqual(["-p", "할 일", "--output-format", "json"]);
+    expect(a.slice(0, 3)).toEqual(["-p", "--output-format", "json"]);
+    expect(a).not.toContain("할 일"); // 지시문은 표준 입력으로 (인자 하나는 128KB까지)
     expect(a).toContain("--session-id");
     expect(claudeArgs(req, "u-1", true)).toContain("--resume");
   });
@@ -57,15 +58,15 @@ describe("Claude 어댑터", () => {
 
 describe("Codex 어댑터", () => {
   it("새 세션은 폴더와 샌드박스를 주고, 이어 쓰기는 resume", () => {
-    expect(codexArgs(req, null)).toEqual(["exec", "--json", "-C", "/p", "-s", "workspace-write", "할 일"]);
-    expect(codexArgs({ ...req, sessionId: "t-1" }, null)).toEqual(["exec", "resume", "t-1", "--json", "할 일"]);
-    expect(codexArgs({ ...req, readOnly: true }, "/tmp/s.json")).toEqual(["exec", "--json", "-C", "/p", "-s", "read-only", "--output-schema", "/tmp/s.json", "할 일"]);
+    expect(codexArgs(req, null)).toEqual(["exec", "--json", "-C", "/p", "-s", "workspace-write", "-"]);
+    expect(codexArgs({ ...req, sessionId: "t-1" }, null)).toEqual(["exec", "resume", "t-1", "--json", "-"]);
+    expect(codexArgs({ ...req, readOnly: true }, "/tmp/s.json")).toEqual(["exec", "--json", "-C", "/p", "-s", "read-only", "--output-schema", "/tmp/s.json", "-"]);
   });
 
   it("사용자가 등록한 MCP 서버를 모두 끄고, Figma 노드에만 Figma 서버를 그 노드의 도구로 연다 (조각 3)", () => {
     const servers = ["context7", "notion", "figma-4dd"];
     const plain = codexArgs(req, null, servers);
-    expect(plain.slice(-7)).toEqual(["-c", "mcp_servers.context7.enabled=false", "-c", "mcp_servers.notion.enabled=false", "-c", "mcp_servers.figma-4dd.enabled=false", "할 일"]);
+    expect(plain.slice(-7)).toEqual(["-c", "mcp_servers.context7.enabled=false", "-c", "mcp_servers.notion.enabled=false", "-c", "mcp_servers.figma-4dd.enabled=false", "-"]);
     const draw = codexArgs({ ...req, figma: { level: "write", server: "figma-4dd", url: "https://mcp.figma.com/mcp" } }, null, servers);
     expect(draw).toContain("mcp_servers.notion.enabled=false");
     expect(draw).not.toContain("mcp_servers.figma-4dd.enabled=false");
