@@ -304,7 +304,7 @@ N26F:
   - 구현: `figma-implement-design`
   - 디자인 규칙 스킬은 `CLAUDE.md`와 `AGENTS.md` 양쪽 형식을 지원합니다.
 - **Professional 요금제 조건:**
-  - Code Connect를 쓸 수 있습니다. Full 또는 Dev 시트가 필요하고, 활성 라이브러리 1개와 활성 프레임워크 1개로 제한됩니다. React Native 하나로 모바일과 웹(Expo 웹)을 같이 다루면 이 제한에 걸리지 않을 가능성이 큽니다(미확인).
+  - Code Connect(Figma 안에 부품과 코드 파일을 잇는 기능)는 **쓸 수 없습니다.** 처음에는 된다고 적었는데, 조각 3 실제 실행에서 Figma가 「Organization·Enterprise 요금제의 라이브러리에서만 된다」며 거부했습니다(2026-11-27). 오너 결정으로 요금제는 그대로 두고, 같은 짝을 저장소 파일(`design/code-connect.json`)로 둡니다. 구현 세션은 그 파일로 부품을 찾습니다.
   - MCP 읽기 호출은 하루 200회, 분당 10회로 제한됩니다. 쓰기 도구는 이 제한에서 빠집니다.
   - 캔버스 쓰기(`use_figma`)도 쓸 수 있습니다. 베타 기간에는 무료입니다.
 - **React Native:** Code Connect가 공식 지원합니다. MCP 기본 출력은 웹용이므로, Code Connect 라벨을 React Native로 맞추고 "웹 코드는 구조 참고용이고 React Native로 옮겨 쓴다"는 규칙을 지시문에 넣습니다.
