@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { DIR, readEvents, type LedgerEvent } from "./ledger.ts";
 
 export const STATE_FILE = "state.json";
-export const STATE_SCHEMA_VERSION = 2;
+/** 접는 규칙이 바뀌면 올린다. 그러면 저장된 state.json을 버리고 원장에서 다시 만든다 (3: 리뷰 세션을 작업 세션으로 쓰지 않음) */
+export const STATE_SCHEMA_VERSION = 3;
 export const statePath = (root: string) => join(root, DIR, STATE_FILE);
 
 export type Status = "idle" | "running" | "waiting_human" | "done" | "stopped";
