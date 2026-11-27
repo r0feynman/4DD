@@ -186,6 +186,17 @@ function record(ctx: GateContext, command: string, exit: number, result: "pass" 
 }
 
 /**
+ * 리뷰(N27)가 「동작은 맞는데 단위 테스트가 없음」으로 이 노드에 보냈고, 그 뒤로 이 노드가 아직 통과하지 않았는가.
+ * 그때 새 테스트는 처음부터 통과하므로 「처음엔 실패」를 요구하지 않는다 (새 테스트가 늘었는지는 그대로 봄).
+ */
+export function reviewAskedTests(events: LedgerEvent[], task: string, nodeId: string): boolean {
+  const at = events.findLastIndex((e) => e.type === "node_end" && e.task === task && e.node === "N27");
+  const r = events[at];
+  if (!r || r.type !== "node_end" || r.result !== "fail" || r.next !== nodeId || r.then !== "N27") return false;
+  return !events.slice(at + 1).some((e) => e.type === "node_end" && e.task === task && e.node === nodeId && e.result === "pass");
+}
+
+/**
  * 이 작업이 스펙을 고치러 갔다가 N04에서 다시 승인받았고, 그 뒤로 이 노드가 아직 통과하지 않았는가.
  * 스펙이 바뀌면 앞 작업이 쓴 단위 테스트가 옛 예시를 쓰고 있을 수 있다 (예: 아이디 lee → lee01).
  */
@@ -438,8 +449,10 @@ export function runGate(ctx: GateContext): GateOutcome {
 
   // 구현이 이미 있는 작업으로 다시 돌아왔으면(test_flaky를 고치러 오거나 스펙을 고친 뒤) "처음엔 실패"를 요구할 수 없다.
   const specChanged = gate.reentry === "spec_changed" && !!ctx.task && specReapproved(readEvents(ctx.root).events, ctx.task, ctx.nodeId);
+  const testsAfter = gate.expect === "fail" && !!ctx.task && reviewAskedTests(readEvents(ctx.root).events, ctx.task, ctx.nodeId);
   const reentry =
     specChanged ||
+    testsAfter ||
     (gate.reentry === "any" &&
       !!ctx.task &&
       readEvents(ctx.root).events.some((e) => e.type === "node_end" && e.task === ctx.task && e.node === "N24" && e.result === "pass"));

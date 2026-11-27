@@ -167,7 +167,7 @@ export const REVIEW_SCHEMA = {
     pass: { type: "boolean" },
     cause: { type: ["string", "null"], enum: ["code_bug", "arch_wrong", null] },
     // code_bug일 때 고칠 곳 (2026-11-25 오너 결정): 동작이 틀림 → N23, 동작은 맞고 구조만 다름 → N25, 인수 테스트가 덜 확인 → N22
-    fix_in: { type: ["string", "null"], enum: ["behavior", "structure", "acceptance_test", null] },
+    fix_in: { type: ["string", "null"], enum: ["behavior", "structure", "acceptance_test", "unit_test", null] },
     findings: {
       type: "array",
       items: {
@@ -186,7 +186,7 @@ export interface ReviewVerdict {
   pass: boolean;
   cause: "code_bug" | "arch_wrong" | null;
   /** code_bug일 때 고칠 곳 */
-  fixIn: "behavior" | "structure" | "acceptance_test" | null;
+  fixIn: "behavior" | "structure" | "acceptance_test" | "unit_test" | null;
   findings: { file: string; line: number | null; why: string }[];
 }
 
@@ -201,7 +201,7 @@ export function parseVerdict(v: unknown): ReviewVerdict | null {
   const c = o.pass ? null : (cause ?? "code_bug");
   // 고칠 곳을 답하지 않았으면, 지적이 모두 인수 테스트 파일을 가리킬 때만 인수 테스트로 본다.
   const testsOnly = findings.length > 0 && findings.every((f) => f.file.startsWith("tests/acceptance/"));
-  const known = ["behavior", "structure", "acceptance_test"] as const;
+  const known = ["behavior", "structure", "acceptance_test", "unit_test"] as const;
   const given = known.find((k) => k === o.fix_in);
   const fixIn = c !== "code_bug" ? null : (given ?? (testsOnly ? "acceptance_test" : "behavior"));
   return { pass: o.pass, cause: c, fixIn, findings };
@@ -269,7 +269,7 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
     task,
     result: stop ? "wait" : passed ? "pass" : "fail",
     ...(cause && !passed ? { cause } : {}),
-    ...(nextOverride ? { next: nextOverride, then: "N26" } : {}),
+    ...(nextOverride ? { next: nextOverride, then: route?.then ?? "N26" } : {}),
     session: turn.sessionId,
     loaded: ctx.loaded,
     ...(turn.tokens ? { tokens: turn.tokens } : {}),
@@ -299,10 +299,12 @@ function passed0(stop: string | undefined, ok: boolean, verdict: ReviewVerdict |
 }
 
 /** 리뷰가 정한 고칠 곳별 경로 */
-const FIX_ROUTE: Record<"behavior" | "structure" | "acceptance_test", { label: string; next?: string }> = {
+const FIX_ROUTE: Record<"behavior" | "structure" | "acceptance_test" | "unit_test", { label: string; next?: string; then?: string }> = {
   behavior: { label: "동작이 설계와 다름 (N23부터)" },
   structure: { label: "동작은 맞고 구조만 다름 (N25 리팩터 뒤 N26)", next: "N25" },
   acceptance_test: { label: "인수 테스트가 시나리오를 덜 확인함 (N22 뒤 N26)", next: "N22" },
+  // 동작은 이미 설계대로인데 그것을 확인하는 단위 테스트가 없음: 새 테스트는 처음부터 통과하므로 N23의 「처음엔 실패」를 면제하고 다시 리뷰 (2026-11-27 실제 실행)
+  unit_test: { label: "동작은 맞는데 그 동작의 단위 테스트가 없음 (N23에서 테스트만 더함, 처음부터 통과해도 됨, 그 뒤 N27)", next: "N23", then: "N27" },
 };
 
 // ---------------------------------------------------------------- 관문의 리뷰 세션 (조각 2: N13, N14, 승인 L1)

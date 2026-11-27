@@ -119,6 +119,8 @@ function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[],
       return { kind: "node", node: r.goto };
     }
     default: {
+      // 사람이 노드의 일을 확인하고 이어 갈 노드를 정했다 (approve --to)
+      if (h.kind === "approve" && h.to) return { kind: "node", node: h.to };
       // approve, edit, reject: 사람이 고치거나 승인했다.
       const reason = h.reason ?? end.cause;
       const n = getNode(nodes, end.node);

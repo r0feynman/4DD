@@ -28,7 +28,7 @@ import { figmaCheck } from "./figma.ts";
 const USAGE = `사용법: 4dd <명령>
 
   run [--agent claude|codex] [--max-tasks N] [--root 폴더]   지휘 루프. 끝나거나 사람이 필요할 때까지 돈다 (0 끝 · 3 사람 대기 · 1 오류)
-  human <approve|hint|reclassify|hold> [글|원인] [--minutes N] [--root 폴더]   사람 개입을 남기고 다시 시작할 수 있게 한다
+  human <approve|hint|reclassify|hold> [글|원인] [--minutes N] [--by po|dev] [--to <노드>] [--root 폴더]   사람 개입을 남기고 다시 시작할 수 있게 한다. approve --to는 같은 노드를 다시 하지 않고 그 노드부터 이어 감
   story --feature <이름> [--type mobile|web|backend] "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]   N01: 스토리를 받아 그 기능의 Stage 0을 시작한다 (PO 창구). --type은 「기능 단위」 프로젝트에서 기능의 작업 유형
   review [--url <주소> [--id RV…]] [--root 폴더]   기다리는 승인(N04, N15)의 검토 페이지를 만든다. --url은 게시한 주소를 남긴다 (PO 창구)
   human approve --review <RV…> --quote "<PO의 말>"   검토 해시를 확인하고 승인, 스테이지 패킷을 남긴다 (PO 창구)
@@ -344,7 +344,8 @@ function main(argv: string[]): number {
         return 1;
       }
       const minutes = str(opt.minutes);
-      out(humanAction(resolve(str(opt.root) ?? "."), kind, pos.slice(1).join(" ") || undefined, minutes ? Number(minutes) : undefined));
+      const who = speaker(opt);
+      out(humanAction(resolve(str(opt.root) ?? "."), kind, pos.slice(1).join(" ") || undefined, minutes ? Number(minutes) : undefined, { ...who, ...(str(opt.to) ? { to: str(opt.to) } : {}) }));
       return 0;
     }
     if (cmd === "report") {

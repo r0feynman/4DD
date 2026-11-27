@@ -62,6 +62,11 @@ function scriptedAgent(script: Script = {}): Adapter & { calls: { node: string; 
       }
       const k = task.slice(1);
       if (node === "N22") put(`tests/acceptance/S${k}.test.ts`, `import { test, expect } from "vitest";\nimport { ok } from "../../src/t${k}.ts";\ntest("S${k}", () => { expect(ok).toBe(true); });\n`);
+      if (node === "N23" && req.prompt.includes("N23에서 테스트만 더함")) {
+        // 리뷰가 단위 테스트만 요구함: 이미 있는 동작(ok)을 확인하는 테스트라 처음부터 통과한다
+        put(`tests/unit/t${k}_after.test.ts`, `import { test, expect } from "vitest";\nimport { ok } from "../../src/t${k}.ts";\ntest("t${k} after", () => { expect(ok).toBe(true); });\n`);
+        return done();
+      }
       if (node === "N23") {
         const i = (units[task] = (units[task] ?? 0) + 1);
         put(`tests/unit/t${k}_${i}.test.ts`, `import { test, expect } from "vitest";\nimport * as m from "../../src/t${k}.ts";\ntest("t${k} ${i}", () => { expect((m as Record<string, unknown>).v${i}).toBe(true); });\n`);
@@ -160,7 +165,11 @@ describe("지휘 루프", () => {
     const r = runLoop({ root, adapter: agent, maxTasks: 1 });
     expect(r.reason).toBe("stopped");
     expect(r.message).toContain("잠긴 파일이 기준 해시와 다릅니다: specs/login/design.md");
-    expect(humanAction(root, "approve")).toContain("기준 해시를 새로 고정");
+    // --to는 approve에만, 같은 스테이지의 아는 노드만
+    expect(() => humanAction(root, "approve", undefined, undefined, { to: "N99" })).toThrow("모르는 노드");
+    expect(() => humanAction(root, "approve", undefined, undefined, { to: "N13" })).toThrow("같은 스테이지");
+    expect(humanAction(root, "approve", undefined, undefined, { by: "dev" })).toContain("기준 해시를 새로 고정");
+    expect(readEvents(root).events.filter((e) => e.type === "human").at(-1)).toMatchObject({ kind: "approve", by: "dev" });
     expect(git(root, ["status", "--porcelain", "--", ".", ":!.4dd/events.jsonl"]).trim()).toBe("");
     const r2 = runLoop({ root, adapter: agent });
     expect(r2.reason, r2.message).toBe("done");
@@ -204,6 +213,18 @@ describe("리뷰가 인수 테스트를 고치라고 할 때", () => {
     ]);
     const end27 = readEvents(root).events.find((e) => e.type === "node_end" && e.node === "N27" && e.result === "fail");
     expect(end27).toMatchObject({ cause: "code_bug", next: "N22", then: "N26" });
+  });
+});
+
+describe("리뷰가 단위 테스트만 더하라고 할 때 (2026-11-27 실제 실행)", () => {
+  it("fix_in이 unit_test면 N23에서 처음부터 통과하는 테스트를 더해도 받고, N27로 다시 간다", () => {
+    const r = runLoop({ root, adapter: scriptedAgent({ reviews: [{ pass: false, cause: "code_bug", fix_in: "unit_test" }] }), maxTasks: 1 });
+    expect(r.reason, r.message).toBe("paused");
+    expect(nodeSeq("T1")).toEqual([
+      "N21:pass", "N22:pass", "N23:pass", "N24:pass", "N25:pass", "N26:pass", "N27:fail",
+      "N23:pass", "N27:pass", "N28:pass", "N29:pass",
+    ]);
+    expect(readEvents(root).events.find((e) => e.type === "node_end" && e.node === "N27" && e.result === "fail")).toMatchObject({ next: "N23", then: "N27" });
   });
 });
 

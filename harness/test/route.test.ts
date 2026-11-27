@@ -71,6 +71,13 @@ describe("다음 할 일 정하기", () => {
     expect(next([...budget, human("approve", { reason: "budget_exceeded" })])).toEqual({ kind: "node", node: "N23" });
   });
 
+  it("사람이 approve --to로 이어 갈 노드를 정하면 같은 노드를 다시 하지 않고 그 노드로 (2026-11-27 실제 실행)", () => {
+    // 리뷰가 단위 테스트만 요구했는데 N23이 「처음엔 실패」를 못 채워 횟수 제한에 걸림
+    const stuck = [...picked(), end({ node: "N23", result: "fail" }), classify("N23", "budget_exceeded", true)];
+    expect(next([...stuck, human("approve", { node: "N23", reason: "budget_exceeded" })])).toEqual({ kind: "node", node: "N23" });
+    expect(next([...stuck, human("approve", { node: "N23", reason: "budget_exceeded", to: "N27" })])).toEqual({ kind: "node", node: "N27" });
+  });
+
   it("힌트는 다시 시도: 판단 노드면 고치러 가는 노드로", () => {
     const ev = [...picked(), end({ node: "N26", result: "fail", cause: "code_bug" }), classify("N26", "budget_exceeded", true), human("hint")];
     expect(next(ev)).toEqual({ kind: "node", node: "N23" });
