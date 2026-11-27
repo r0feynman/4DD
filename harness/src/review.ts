@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { marked } from "marked";
+import { FRAMES_DIR, parseStates } from "./design.ts";
 import { GATE_DIR, SPEC_CONFLICT } from "./gate.ts";
 import type { LedgerEvent } from "./ledger.ts";
 import type { NodeDef } from "./nodes.ts";
@@ -91,16 +92,67 @@ function readScenarios(text: string): { background: { kw: string; text: string }
 
 const KW_CLASS: Record<string, string> = { 조건: "given", Given: "given", 만일: "when", When: "when", 그러면: "then", Then: "then" };
 
-function scenarioCard(s: ScenarioView): string {
+/** 화면 기능의 시나리오 카드에 붙는 것 (조각 3): 고정될 프레임 이미지와 다섯 상태 */
+interface ScreenView {
+  frame?: string;
+  states?: { name: string; value: string }[];
+  noScreen?: string;
+}
+
+function screenBlock(v: ScreenView | undefined): string {
+  if (!v) return "";
+  if (v.noScreen !== undefined) return `<p class="muted">화면 없음: ${esc(v.noScreen)}</p>`;
+  const img = v.frame ? `<figure class="frame"><img src="${v.frame}" alt="완성 화면"><figcaption>승인하면 이 화면이 구현과 화면 비교의 기준이 됩니다</figcaption></figure>` : '<p class="warn">완성 화면 이미지가 없습니다</p>';
+  const st = v.states?.length
+    ? `<div class="states">${v.states.map((x) => `<span class="st ${/^해당 없음/.test(x.value) ? "na" : ""}" title="${esc(x.value)}">${esc(x.name)}</span>`).join("")}</div>`
+    : "";
+  return img + st;
+}
+
+function scenarioCard(s: ScenarioView, screen?: ScreenView): string {
   const steps = s.steps.map((x) => `<li><b class="kw ${KW_CLASS[x.kw] ?? "and"}">${esc(x.kw)}</b> ${esc(x.text)}</li>`).join("");
   const table = s.table.length
     ? `<div class="tbl"><table>${s.table.map((r, i) => `<tr>${r.map((c) => (i === 0 ? `<th>${esc(c)}</th>` : `<td>${esc(c)}</td>`)).join("")}</tr>`).join("")}</table></div>`
     : "";
-  return `<article class="card scen"><header>${idChip(s.id)}${s.reqs.map(idChip).join("")}<b>${esc(s.title)}</b></header><ol class="steps">${steps}</ol>${table}</article>`;
+  return `<article class="card scen"><header>${idChip(s.id)}${s.reqs.map(idChip).join("")}<b>${esc(s.title)}</b></header><ol class="steps">${steps}</ol>${table}${screenBlock(screen)}</article>`;
 }
 
-function n04Body(root: string, feature: string): string {
-  const story = (readText(root, featurePath(feature, "story.md")) ?? "").replace(/^#.*\n+/, "").trim();
+/** 이 기능에서 디자인 시스템을 처음 만들었으면 보여 줄 칸 (조각 3: 오너는 첫 N04에서 화면과 함께 봄) */
+function designSystemBlock(root: string): string {
+  const tokens = (() => {
+    try {
+      return JSON.parse(readText(root, "design/tokens.json") ?? "null") as Record<string, Record<string, unknown>> | null;
+    } catch {
+      return null;
+    }
+  })();
+  if (!tokens) return "";
+  const colors = Object.entries(tokens.color ?? {}).map(([k, v]) => `<span class="sw"><i style="background:${esc(String(v))}"></i>${esc(k)}<small>${esc(String(v))}</small></span>`).join("");
+  const kv = (g: string) => Object.entries(tokens[g] ?? {}).map(([k, v]) => `<span class="chip">${esc(k)} <b>${esc(typeof v === "object" ? JSON.stringify(v) : String(v))}</b></span>`).join("");
+  let comps = "";
+  try {
+    const list = JSON.parse(readText(root, "design/code-connect.json") ?? "[]") as { component?: string; figma?: string; code?: string }[];
+    comps = list.map((c) => `<span class="chip"><b>${esc(String(c.component))}</b> Figma ${esc(String(c.figma))} ↔ <code>${esc(String(c.code))}</code></span>`).join("");
+  } catch {
+    comps = "";
+  }
+  return `<section class="ds"><h2>디자인 시스템 (처음 한 번)</h2><p class="muted">이 프로젝트의 모든 화면이 이 색·간격·글꼴과 부품 넷만 씁니다. 리뷰 세션이 Figma와 같은지 확인했습니다.</p>
+<div class="swatches">${colors}</div><h3>간격</h3><div class="chips">${kv("space")}</div><h3>글꼴</h3><div class="chips">${kv("font")}</div><h3>모서리</h3><div class="chips">${kv("radius")}</div><h3>부품 (Code Connect)</h3><div class="chips">${comps}</div></section>`;
+}
+
+function n04Body(root: string, feature: string, events: LedgerEvent[] = []): string {
+  // 머리(# 스토리)와 작업 유형 줄은 빼고 PO의 말만
+  const story = (readText(root, featurePath(feature, "story.md")) ?? "").replace(/^#.*\n+/, "").replace(/^작업 유형:.*\n+/m, "").trim();
+  const statesMap = parseStates(readText(root, featurePath(feature, "states.md")) ?? "");
+  const screens = (id: string): ScreenView | undefined => {
+    const st = statesMap.get(id);
+    const png = join(root, FRAMES_DIR, `${id}.png`);
+    const frame = existsSync(png) ? `data:image/png;base64,${readFileSync(png).toString("base64")}` : undefined;
+    if (!st && !frame) return undefined;
+    if (st?.noScreen !== undefined) return { noScreen: st.noScreen };
+    return { ...(frame ? { frame } : {}), states: st ? [...st.states].map(([name, value]) => ({ name, value })) : [] };
+  };
+  const firstDesign = events.some((e) => e.type === "node_end" && e.node === "N00F" && e.result === "pass" && e.feature === feature);
   const specText = readText(root, featurePath(feature, "spec.md")) ?? "";
   const sec = sections(specText);
   const reqs = parseSpec(specText, "spec.md").requirements;
@@ -121,7 +173,8 @@ ${questions.length ? `<section class="ask"><h2>답이 필요한 것 ${questions.
 <section><h2>요구사항 ${reqs.length}개</h2><div class="grid">${reqCards}</div></section>
 <section><h2>시나리오 ${all.length}개</h2>
 ${background.length ? `<div class="bg"><span class="k">모든 시나리오의 시작</span><ol class="steps">${background.map((x) => `<li><b class="kw ${KW_CLASS[x.kw] ?? "and"}">${esc(x.kw)}</b> ${esc(x.text)}</li>`).join("")}</ol></div>` : ""}
-<div class="grid">${all.map(scenarioCard).join("")}</div></section>
+<div class="grid">${all.map((s) => scenarioCard(s, screens(s.id))).join("")}</div></section>
+${firstDesign ? designSystemBlock(root) : ""}
 <section class="two"><div><h2>하지 않는 것</h2><ul>${listItems(sec.get("범위 밖")).map((x) => `<li>${chips(x)}</li>`).join("") || "<li>없음</li>"}</ul></div>
 <div><h2>지켜야 할 것</h2><ul>${listItems(sec.get("제약")).map((x) => `<li>${chips(x)}</li>`).join("") || "<li>없음</li>"}</ul></div></section>
 <section class="how"><h2>답하는 법</h2><p>채팅에 <b>「승인」</b>이라고 적어 주세요. 고칠 점이나 물을 것의 답이 있으면 그대로 적어 주세요. 에이전트가 스펙과 시나리오를 고쳐 새 검토 페이지를 보여 드립니다.</p></section>`;
@@ -211,6 +264,10 @@ h1 { font-size: 24px; margin: 6px 0 4px; } h2 { font-size: 18px; margin: 28px 0 
 .tbl { overflow-x:auto; } table { border-collapse:collapse; font-size:13px; margin-top:4px; } th, td { border:1px solid var(--line); padding:3px 8px; text-align:left; }
 .two { display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap:12px; }
 .two ul { margin:0; padding-left:18px; }
+.frame { margin:6px 0 0; } .frame img { width:100%; max-width:220px; border:1px solid var(--line); border-radius:14px; display:block; } .frame figcaption { font-size:12px; color:var(--muted); margin-top:4px; }
+.states { display:flex; flex-wrap:wrap; gap:4px; } .states .st { font-size:12px; border:1px solid var(--fig, #b02f78); color:var(--fig, #b02f78); border-radius:999px; padding:1px 8px; } .states .st.na { border-style:dashed; opacity:.6; }
+.ds .swatches { display:flex; flex-wrap:wrap; gap:8px; } .sw { display:flex; flex-direction:column; align-items:center; font-size:12px; gap:2px; } .sw i { width:44px; height:44px; border-radius:10px; border:1px solid var(--line); } .sw small { color:var(--muted); }
+.chips { display:flex; flex-wrap:wrap; gap:6px; } .chip { font-size:12.5px; border:1px solid var(--line); border-radius:8px; padding:2px 8px; background:var(--surface); }
 .lane { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; } .lane .card { flex: 1 1 200px; } .arrow { align-self:center; color:var(--muted); font-size:18px; }
 .feat { display:inline-block; margin-top:8px; font:600 12px/1 ui-monospace, Menlo, monospace; border:1px solid var(--line); border-radius:5px; padding:4px 7px; }
 .dsec.impact { border:1.5px solid var(--human); }
@@ -229,8 +286,10 @@ export function renderReviewPage(input: ReviewPageInput): string {
   const name = featureTitle(root, feature);
   const title = `${name} 검토`;
   const isPlan = node.approve?.packet === "1-2";
-  const body = isPlan ? n15Body(root, feature, events) : n04Body(root, feature);
+  const body = isPlan ? n15Body(root, feature, events) : n04Body(root, feature, events);
+  // 원문 칸에는 글 파일만 (프레임 이미지는 시나리오 카드에 그림으로 들어감)
   const sources = files
+    .filter((f) => !f.path.endsWith(".png"))
     .map((f) => `<details class="src"><summary>원문 · <code>${esc(f.path)}</code></summary><pre>${esc(readText(root, f.path) ?? "(없음)")}</pre></details>`)
     .join("");
   return `<!doctype html>

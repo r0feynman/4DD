@@ -2,7 +2,7 @@
 //
 // 지휘 프로그램(4dd run)은 이 함수를 노드마다 부르고, 통과하면 커밋하고 다음 노드로 간다.
 
-import type { Adapter, TurnResult } from "./adapters.ts";
+import { FIGMA_WRITE_TOOLS, type Adapter, type FigmaAccess, type TurnResult } from "./adapters.ts";
 import type { Config } from "./config.ts";
 import { buildContext } from "./context.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -11,7 +11,8 @@ import { GATE_DIR, REVIEW_NOTE_HEAD, runGate, type GateOutcome } from "./gate.ts
 import { checkDiff } from "./guard.ts";
 import { appendEvent, nextId, readEvents } from "./ledger.ts";
 import { ledgerIntact, ledgerSnapshot } from "./lock.ts";
-import { getNode, sessionScope, type Cause, type NodeDef, type NodeSet } from "./nodes.ts";
+import { getNode, resolveWrites, sessionScope, type Cause, type NodeDef, type NodeSet } from "./nodes.ts";
+import { matchesAny } from "./glob.ts";
 import { loadState, type State } from "./state.ts";
 import type { LedgerEvent } from "./ledger.ts";
 
@@ -30,11 +31,16 @@ export interface SessionNodeOptions {
 
 /** 이어 쓸 작업 세션: 작업마다(task) 또는 기능의 스테이지마다(stage, 조각 2) */
 export function pickSession(events: LedgerEvent[], nodes: NodeSet, node: NodeDef, task: string | null, feature: string | null, state: State): string | null {
-  if (sessionScope(node) === "task") return task && state.task === task ? state.session : null;
+  const scope = sessionScope(node);
+  if (scope === "task") return task && state.task === task ? state.session : null;
+  // stage: 같은 스테이지의 작업 세션 노드끼리 · design: 디자인 노드(N00F·N03W·N03F)끼리 (조각 3: 스테이지 세션과 따로)
   const hit = events
     .filter((e): e is Extract<LedgerEvent, { type: "node_end" }> => e.type === "node_end" && !!e.session)
     .filter((e) => e.task === task && (task !== null || e.feature === feature))
-    .filter((e) => nodes.nodes[e.node]?.actor === "worker" && nodes.nodes[e.node]?.stage === node.stage)
+    .filter((e) => {
+      const n = nodes.nodes[e.node];
+      return n?.actor === "worker" && n.stage === node.stage && sessionScope(n) === scope;
+    })
     .at(-1);
   return hit?.session ?? null;
 }
@@ -70,7 +76,8 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
   const ctx = buildContext({ root, nodes, nodeId, task, feature });
   const snap = ledgerSnapshot(root);
   const env = { FOURDD_ROOT: root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: runId, ...(feature ? { FOURDD_FEATURE: feature } : {}) };
-  const turn = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs });
+  const raw = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs, ...figmaFor(node, opts.config) });
+  const { turn, sessionCost } = perTurnCost(events, raw, session);
 
   const notes: string[] = [];
   let stop: string | undefined;
@@ -115,6 +122,10 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
 
   const passed = !stop && turn.ok && diff.violations.length === 0 && (gate?.passed ?? true) && (review?.passed ?? true);
   const both = review?.turn ? sumTurns(turn, review.turn) : turn;
+  // Figma 호출: Claude는 훅이 원장에 남긴 것, Codex는 차례 출력에서 센 것 (그린 세션과 리뷰 세션 합)
+  const figmaCalls = node.figma
+    ? [turn, review?.turn].reduce((a, t) => ({ read: a.read + (t?.figmaCalls?.read ?? 0), write: a.write + (t?.figmaCalls?.write ?? 0) }), countFigmaCalls(readEvents(root).events, runId))
+    : undefined;
   appendEvent(root, H, {
     type: "node_end",
     id: runId,
@@ -128,8 +139,10 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
     loaded: [...ctx.loaded, ...(review?.loaded ?? [])],
     ...(both.tokens ? { tokens: both.tokens } : {}),
     ...(both.costUsd !== undefined ? { cost_usd: both.costUsd } : {}),
+    ...(sessionCost ? { session_cost: sessionCost } : {}),
     minutes: both.minutes,
     ...(both.turns !== undefined ? { turns: both.turns } : {}),
+    ...(figmaCalls ? { figma_calls: figmaCalls } : {}),
   });
   loadState(root); // state.json을 원장에 맞춘다
 
@@ -155,12 +168,12 @@ export const REVIEW_SCHEMA = {
     pass: { type: "boolean" },
     cause: { type: ["string", "null"], enum: ["code_bug", "arch_wrong", null] },
     // code_bug일 때 고칠 곳 (2026-11-25 오너 결정): 동작이 틀림 → N23, 동작은 맞고 구조만 다름 → N25, 인수 테스트가 덜 확인 → N22
-    fix_in: { type: ["string", "null"], enum: ["behavior", "structure", "acceptance_test", null] },
+    fix_in: { type: ["string", "null"], enum: ["behavior", "structure", "acceptance_test", "unit_test", null] },
     findings: {
       type: "array",
       items: {
         type: "object",
-        properties: { file: { type: "string" }, line: { type: ["integer", "null"] }, why: { type: "string" } },
+        properties: { file: { type: "string" }, line: { type: ["integer", "null"] }, why: { type: "string", description: "한국어로 씀 (PO가 검토 페이지에서 읽음)" } },
         required: ["file", "line", "why"],
         additionalProperties: false,
       },
@@ -174,7 +187,7 @@ export interface ReviewVerdict {
   pass: boolean;
   cause: "code_bug" | "arch_wrong" | null;
   /** code_bug일 때 고칠 곳 */
-  fixIn: "behavior" | "structure" | "acceptance_test" | null;
+  fixIn: "behavior" | "structure" | "acceptance_test" | "unit_test" | null;
   findings: { file: string; line: number | null; why: string }[];
 }
 
@@ -189,7 +202,7 @@ export function parseVerdict(v: unknown): ReviewVerdict | null {
   const c = o.pass ? null : (cause ?? "code_bug");
   // 고칠 곳을 답하지 않았으면, 지적이 모두 인수 테스트 파일을 가리킬 때만 인수 테스트로 본다.
   const testsOnly = findings.length > 0 && findings.every((f) => f.file.startsWith("tests/acceptance/"));
-  const known = ["behavior", "structure", "acceptance_test"] as const;
+  const known = ["behavior", "structure", "acceptance_test", "unit_test"] as const;
   const given = known.find((k) => k === o.fix_in);
   const fixIn = c !== "code_bug" ? null : (given ?? (testsOnly ? "acceptance_test" : "behavior"));
   return { pass: o.pass, cause: c, fixIn, findings };
@@ -229,6 +242,13 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
 
   let cause: Cause | undefined;
   const notes: string[] = [];
+  if (verdict?.fixIn) {
+    const corrected = correctFixIn(verdict, nodes, root);
+    if (corrected && corrected !== verdict.fixIn) {
+      notes.push(`리뷰는 고칠 곳을 ${verdict.fixIn}(${FIX_WRITER[verdict.fixIn]})로 골랐지만 그 노드는 지적한 파일을 고칠 수 없어, ${corrected}(${FIX_WRITER[corrected]})로 보냅니다`);
+      verdict.fixIn = corrected;
+    }
+  }
   if (!turn.ok) {
     cause = "env";
     notes.push(`리뷰 세션이 실패했습니다: ${turn.error ?? "알 수 없는 오류"}`);
@@ -257,8 +277,11 @@ export function runReviewNode(opts: SessionNodeOptions): SessionNodeOutcome & { 
     task,
     result: stop ? "wait" : passed ? "pass" : "fail",
     ...(cause && !passed ? { cause } : {}),
-    ...(nextOverride ? { next: nextOverride, then: "N26" } : {}),
-    session: turn.sessionId,
+    ...(nextOverride ? { next: nextOverride, then: route?.then ?? "N26" } : {}),
+    // 리뷰 세션은 작업 세션이 아니다: session에 두면 다음 작업 노드가 이어 써, Codex는 읽기 전용 샌드박스에 갇힌다
+    ...(turn.sessionId ? { review_session: turn.sessionId } : {}),
+    // 매번 새 세션이므로 그 차례 금액이 그대로 몫이다
+    ...(turn.sessionId && turn.costUsd !== undefined ? { session_cost: { session: turn.sessionId, usd: turn.costUsd } } : {}),
     loaded: ctx.loaded,
     ...(turn.tokens ? { tokens: turn.tokens } : {}),
     ...(turn.costUsd !== undefined ? { cost_usd: turn.costUsd } : {}),
@@ -286,11 +309,35 @@ function passed0(stop: string | undefined, ok: boolean, verdict: ReviewVerdict |
   return !stop && ok && !!verdict?.pass && violations === 0;
 }
 
+type FixIn = NonNullable<ReviewVerdict["fixIn"]>;
+/** 고칠 곳마다 그 파일을 실제로 고치는 노드 (경로의 첫 노드와 다를 수 있음: behavior는 N23부터 가서 N24가 고침) */
+export const FIX_WRITER: Record<FixIn, string> = { behavior: "N24", structure: "N25", acceptance_test: "N22", unit_test: "N23" };
+
+/**
+ * 리뷰가 고른 고칠 곳의 노드가 지적한 파일을 하나도 고칠 수 없으면, 그 파일을 모두 고칠 수 있는 곳으로 바로잡는다.
+ * 참고로만 적은 지적은 세지 않는다. (2026-11-27 Codex 실제 실행: tests/e2e의 파일 위치를 structure(N25)로 보냈는데 N25는 tests/를 고칠 수 없음)
+ */
+export function correctFixIn(verdict: ReviewVerdict, nodes: NodeSet, root = ""): FixIn | null {
+  if (!verdict.fixIn) return null;
+  const files = verdict.findings
+    .filter((f) => !/^\s*참고/.test(f.why))
+    .map((f) => (root && f.file.startsWith(`${root}/`) ? f.file.slice(root.length + 1) : f.file).replace(/:\d+$/, ""))
+    .filter(Boolean);
+  // 테스트가 없다는 지적(unit_test, acceptance_test)은 테스트할 코드(src/)를 가리키기도 하므로 바로잡지 않는다.
+  // 코드를 고치는 경로(structure, behavior)가 테스트 파일만 가리킬 때만 그 테스트를 쓰는 노드로 보낸다
+  if (!files.length || (verdict.fixIn !== "structure" && verdict.fixIn !== "behavior")) return verdict.fixIn;
+  const writable = (fix: FixIn) => files.filter((f) => matchesAny(f, resolveWrites(getNode(nodes, FIX_WRITER[fix]), null))).length;
+  if (writable(verdict.fixIn) > 0) return verdict.fixIn;
+  return (["acceptance_test", "unit_test"] as const).find((f) => writable(f) === files.length) ?? verdict.fixIn;
+}
+
 /** 리뷰가 정한 고칠 곳별 경로 */
-const FIX_ROUTE: Record<"behavior" | "structure" | "acceptance_test", { label: string; next?: string }> = {
+const FIX_ROUTE: Record<"behavior" | "structure" | "acceptance_test" | "unit_test", { label: string; next?: string; then?: string }> = {
   behavior: { label: "동작이 설계와 다름 (N23부터)" },
   structure: { label: "동작은 맞고 구조만 다름 (N25 리팩터 뒤 N26)", next: "N25" },
   acceptance_test: { label: "인수 테스트가 시나리오를 덜 확인함 (N22 뒤 N26)", next: "N22" },
+  // 동작은 이미 설계대로인데 그것을 확인하는 단위 테스트가 없음: 새 테스트는 처음부터 통과하므로 N23의 「처음엔 실패」를 면제하고 다시 리뷰 (2026-11-27 실제 실행)
+  unit_test: { label: "동작은 맞는데 그 동작의 단위 테스트가 없음 (N23에서 테스트만 더함, 처음부터 통과해도 됨, 그 뒤 N27)", next: "N23", then: "N27" },
 };
 
 // ---------------------------------------------------------------- 관문의 리뷰 세션 (조각 2: N13, N14, 승인 L1)
@@ -318,6 +365,12 @@ function sumTurns(a: TurnResult, b: TurnResult): TurnResult {
   return { ...a, minutes: Math.round((a.minutes + b.minutes) * 100) / 100, ...(tokens ? { tokens } : {}), ...(cost !== undefined ? { costUsd: cost } : {}), ...(turns !== undefined ? { turns } : {}) };
 }
 
+/** 노드의 figma 값으로 이 차례에 열 Figma (조각 3). 설정에 figma가 없어도 기본 서버(figma-4dd)를 쓴다 */
+function figmaFor(node: NodeDef, config: Config): { figma?: FigmaAccess } {
+  if (!node.figma) return {};
+  return { figma: { level: node.figma, server: config.figma?.server ?? "figma-4dd", url: config.figma?.url ?? "https://mcp.figma.com/mcp" } };
+}
+
 /** 작업 세션이 쓴 것을 새 리뷰 세션(읽기 전용)이 판정한다. 지적은 관문 요약에 붙어 다음 차례의 맥락이 된다. */
 function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: string; env: Record<string, string>; timeoutMs: number; gateSummary: string }): GateReview {
   const { root, nodes, nodeId, task, feature, runId } = o;
@@ -325,7 +378,9 @@ function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: 
   const rctx = buildContext({ root, nodes, nodeId, task, feature, instruction: node.gate!.review!, readOnly: true });
   const sessionsBefore = readEvents(root).events.filter((e) => e.type === "hook_run" && e.check === "session" && e.run === runId).length;
   const snap = ledgerSnapshot(root);
-  const turn = o.adapter.runTurn({ root, prompt: rctx.prompt, sessionId: null, env: o.env, timeoutMs: o.timeoutMs, readOnly: true, jsonSchema: REVIEW_SCHEMA });
+  // 디자인 노드의 리뷰는 Figma를 읽기만 한다 (그린 세션과 다른 세션, 조각 3)
+  const reviewFigma = node.figma ? figmaFor({ ...node, figma: "read" }, o.config) : {};
+  const turn = o.adapter.runTurn({ root, prompt: rctx.prompt, sessionId: null, env: o.env, timeoutMs: o.timeoutMs, readOnly: true, jsonSchema: REVIEW_SCHEMA, ...reviewFigma });
   const intact = ledgerIntact(root, snap);
   let stop: string | undefined;
   if (!intact.allowed) stop = `원장이 리뷰 세션 동안 바뀌었습니다: ${intact.reason}`;
@@ -353,4 +408,34 @@ function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: 
   mkdirSync(join(root, GATE_DIR), { recursive: true });
   writeFileSync(join(root, GATE_DIR, `${runId}.summary.md`), `${o.gateSummary}\n\n${summary}\n`, "utf8");
   return { passed, ...(cause ? { cause } : {}), ...(stop ? { stop } : {}), summary, turn, loaded: rctx.loaded };
+}
+
+/** 이 노드 실행(그린 세션과 리뷰 세션)에서 훅이 본 Figma 도구 호출 수 (조각 3) */
+export function countFigmaCalls(events: LedgerEvent[], runId: string): { read: number; write: number } {
+  const calls = events.filter((e): e is Extract<LedgerEvent, { type: "hook_run" }> => e.type === "hook_run" && e.check === "figma" && e.run === runId);
+  const write = calls.filter((e) => FIGMA_WRITE_TOOLS.includes((e.target ?? "").split("__").at(-1) ?? "")).length;
+  return { read: calls.length - write, write };
+}
+
+/** 원장에 남은 그 세션의 마지막 누적 표시 가격. 옛 기록(session_cost가 없음)은 cost_usd가 누적값이었다 */
+export function lastSessionUsd(events: LedgerEvent[], session: string): number {
+  let last = 0;
+  for (const e of events) {
+    if (e.type !== "node_end") continue;
+    if (e.session_cost) {
+      if (e.session_cost.session === session) last = e.session_cost.usd;
+    } else if (e.session === session && e.cost_usd !== undefined) last = Math.max(last, e.cost_usd);
+  }
+  return last;
+}
+
+/**
+ * 이번 차례의 표시 가격. `claude -p --resume`의 total_cost_usd는 그 세션의 누적 금액이라(2026-11-27 실제 실행에서 확인),
+ * 이어 쓴 세션이면 원장에 남은 직전 누적값을 뺀다. 새 세션이면 그대로. 누적값은 session_cost로 따로 남긴다.
+ */
+export function perTurnCost(events: LedgerEvent[], turn: TurnResult, resumed: string | null): { turn: TurnResult; sessionCost?: { session: string; usd: number } } {
+  if (turn.costUsd === undefined || !turn.sessionId) return { turn };
+  const before = resumed ? lastSessionUsd(events, turn.sessionId) : 0;
+  const own = Math.max(0, Math.round((turn.costUsd - before) * 1e6) / 1e6);
+  return { turn: { ...turn, costUsd: own }, sessionCost: { session: turn.sessionId, usd: turn.costUsd } };
 }

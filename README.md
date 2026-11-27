@@ -56,6 +56,7 @@
 | [docs/harness-design.md](docs/harness-design.md) | 4DD를 Claude·Codex 어디서나 도는 하네스로 만드는 설계: 사람 개입을 줄이며 서비스를 완성하고 스프린트마다 스스로 개선하는 방법 (승인된 결정과 열린 결정) |
 | [docs/harness-slice1.md](docs/harness-slice1.md) | 하네스 첫 구현 조각 명세: 백엔드 기능 하나가 Stage 2를 사람 손 없이 도는 것부터. 실행 방식, `4dd` 명령, 원장 이벤트, 구현 순서, 완료 기준 |
 | [docs/harness-slice2.md](docs/harness-slice2.md) | 하네스 조각 2 명세: PO가 스토리를 채팅으로 적고 검토 페이지에서 승인하면, 에이전트가 Stage 0·1 문서를 쓰고 Stage 2까지 이어 감 |
+| [docs/harness-slice3.md](docs/harness-slice3.md) | 하네스 조각 3 명세: 화면 기능을 Figma 디자인부터 Android·웹 구현과 화면 비교까지 |
 | [templates/specs/example/](templates/specs/example/) | `spec.md`, `design.md`, `tasks.md`, `.feature` 예시 |
 | [docs/changelog.md](docs/changelog.md) | 변경 기록 (최근 것부터) |
 | [site/index.html](site/index.html) | 한 페이지로 보는 4DD 개발론 (브라우저에서 열기) |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../src/config.ts";
-import { globToRegExp, matchesAny } from "../src/glob.ts";
+import { globsText, globToRegExp, matchesAny } from "../src/glob.ts";
 import { bashViolation, canSessionWrite, commitViolations, diffViolations, toProjectPath } from "../src/lock.ts";
 import { getNode, loadNodes } from "../src/nodes.ts";
 
@@ -20,6 +20,17 @@ describe("경로 패턴", () => {
     expect(matchesAny("4ddXconfig.yaml", ["4dd.config.yaml"])).toBe(false);
     expect(globToRegExp("a?c").test("abc")).toBe(true);
   });
+
+  it("「!」로 시작하는 패턴은 뺄 곳 (조각 3: 앱 코드는 고치되 디자인 시스템은 못 고침)", () => {
+    const w = ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/ui/**"];
+    expect(matchesAny("mobile/login/LoginScreen.tsx", w)).toBe(true);
+    expect(matchesAny("mobile/theme.ts", w)).toBe(false);
+    expect(matchesAny("mobile/ui/Button.tsx", w)).toBe(false);
+    expect(matchesAny("mobile/uix/Button.tsx", w)).toBe(true);
+    expect(matchesAny("src/app.ts", w)).toBe(true);
+    expect(matchesAny("mobile/theme.ts", ["!mobile/theme.ts"])).toBe(false); // 뺄 곳만 있으면 아무것도 맞지 않음
+    expect(globsText(w)).toBe("`src/**`, `mobile/**` (빼고: `mobile/theme.ts`, `mobile/ui/**`)");
+  });
 });
 
 describe("세션이 고칠 수 있는 곳", () => {
@@ -35,6 +46,17 @@ describe("세션이 고칠 수 있는 곳", () => {
     expect(canSessionWrite(ROOT, n24, "/p/.4dd/events.jsonl").reason).toContain(".4dd/는 하네스만");
     expect(canSessionWrite(ROOT, n24, "/etc/passwd").reason).toContain("프로젝트 밖");
     expect(canSessionWrite(ROOT, n24, "../other/src/a.ts").allowed).toBe(false);
+  });
+
+  it("구현 노드는 mobile/ 어디든(부품 코드 포함) 고치되 값·글꼴·앱 ID·번들러 설정은 못 고친다 (조각 3, 2026-11-27 오너 결정)", () => {
+    for (const id of ["N24", "N25"]) {
+      const n = getNode(nodes, id);
+      for (const f of ["mobile/login/api.ts", "mobile/App.tsx", "mobile/ui/TextField.tsx"]) expect(canSessionWrite(ROOT, n, `/p/${f}`).allowed, `${id} ${f}`).toBe(true);
+      for (const f of ["mobile/theme.ts", "mobile/assets/fonts/NotoSansKR-Regular.ttf", "mobile/app.json", "mobile/metro.config.js"]) {
+        expect(canSessionWrite(ROOT, n, `/p/${f}`).allowed, `${id} ${f}`).toBe(false);
+      }
+    }
+    expect(canSessionWrite(ROOT, n24, "/p/mobile/theme.ts").reason).toContain("(빼고: `mobile/theme.ts`");
   });
 
   it("리뷰 세션은 아무것도 고칠 수 없다", () => {

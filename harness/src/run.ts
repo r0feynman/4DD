@@ -9,17 +9,18 @@ import { join, resolve } from "node:path";
 import { adapterFor, type Adapter, type Agent } from "./adapters.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { classifyFailure } from "./classify.ts";
-import { GATE_DIR, runGate, taskScenarios } from "./gate.ts";
+import { GATE_DIR, runGate, taskPlatforms, taskScenarios } from "./gate.ts";
 import { git } from "./git.ts";
 import { appendEvent, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
 import { baselineDiff, computeBaseline, writeBaseline } from "./lock.ts";
 import { budgetFor, getNode, loadNodes, resolveWrites, type Cause, type NodeSet } from "./nodes.ts";
 import { matchesAny } from "./glob.ts";
-import { featureOfTask, readSprint } from "./plan.ts";
+import { featureOfTask, featurePath, featureWorkType, openQuestions, readSprint, readText } from "./plan.ts";
+import { DeviceError, deviceDown, deviceSettings, deviceUp } from "./device.ts";
 import { decideNext } from "./route.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, type FeatureTrace, type Task } from "./trace.ts";
-import { runReviewNode, runSessionNode } from "./turn.ts";
+import { perTurnCost, runReviewNode, runSessionNode } from "./turn.ts";
 
 export interface RunOptions {
   root: string;
@@ -150,7 +151,9 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
   const pickCause = !gate.passed && !(node.otherwise && !gate.cause) && task !== null;
   const c = pickCause ? classifyFailure({ root, nodes, nodeId, task: task!, runId, ...(gate.cause ? { machineCause: gate.cause } : {}), gateSummary: gate.summary, session, adapter }) : undefined;
   const minutes = Math.round(((Date.now() - t0) / 60_000) * 100) / 100;
-  const t = c?.turn;
+  // 분류 차례는 새 세션이므로 그 차례 금액이 그대로 몫이다
+  const priced = c?.turn ? perTurnCost(events, c.turn, null) : undefined;
+  const t = priced?.turn;
   appendEvent(root, nodes.version, {
     type: "node_end",
     id: runId,
@@ -159,8 +162,10 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
     ...featureField,
     result: gate.passed ? "pass" : "fail",
     ...(c ? { cause: c.cause } : !gate.passed && gate.cause ? { cause: gate.cause } : {}),
+    ...(c?.next ? { next: c.next, ...(c.then ? { then: c.then } : {}) } : {}),
     ...(t?.tokens ? { tokens: t.tokens } : {}),
     ...(t?.costUsd !== undefined ? { cost_usd: t.costUsd } : {}),
+    ...(priced?.sessionCost ? { session_cost: priced.sessionCost } : {}),
     minutes,
   });
   if (c) {
@@ -213,7 +218,17 @@ export function runLoop(opts: RunOptions): RunOutcome {
   const startStage = state.node && nodes.nodes[state.node] ? nodes.nodes[state.node].stage : state.planning ? 0 : 2;
   appendEvent(root, H, { type: "run_start", run, agent, feature: startFeature, stage: startStage });
   let tasksDone = 0;
+  // 가상 기기 (조각 3): Android에서 인수 테스트를 돌리는 화면 작업이 처음 나올 때 한 번 띄우고, 이 실행이 띄운 것이면 끝날 때 끈다
+  let deviceStarted = false;
   const finish = (reason: RunOutcome["reason"], message: string): RunOutcome => {
+    if (deviceStarted) {
+      try {
+        deviceDown(root, deviceSettings(config), H);
+      } catch {
+        // 끄지 못해도 실행 결과는 그대로 돌려준다
+      }
+      deviceStarted = false;
+    }
     appendEvent(root, H, { type: "run_end", run, reason });
     loadState(root);
     return { reason, message, run };
@@ -227,7 +242,12 @@ export function runLoop(opts: RunOptions): RunOutcome {
   for (let i = 0; i < maxSteps; i++) {
     state = loadState(root).state;
     const { events } = readEvents(root);
-    const step = decideNext(events, nodes, config.work_type, state);
+    // 일감(Stage 0·1의 기능, Stage 2의 작업)이 속한 기능의 작업 유형으로 노드를 거른다 (조각 3: 기능마다 작업 유형)
+    // 스펙에 물을 것이 남았으면 디자인 노드(Stage 0의 Figma 노드)를 건너뛰고 N04에서 먼저 묻는다 (조각 3)
+    const unitF = unitFeature(root, state);
+    const asking = !!unitF && !state.task && openQuestions(readText(root, featurePath(unitF, "spec.md")) ?? "").length > 0;
+    const hold = (n: string) => asking && nodes.nodes[n]?.stage === 0 && nodes.nodes[n]?.method === "figma";
+    const step = decideNext(events, nodes, featureWorkType(root, unitF, config.work_type), state, hold);
     const task = state.task;
     const feature = unitFeature(root, state);
 
@@ -257,6 +277,18 @@ export function runLoop(opts: RunOptions): RunOutcome {
     const node = getNode(nodes, nodeId);
     const unit = task ?? feature;
     if (!unit) return finish("error", `작업이나 기능 없이 ${nodeId}에 왔습니다`);
+
+    // 화면 작업이 Android에서 플로우를 돌리기 전에 가상 기기를 띄운다 (이미 떠 있으면 그대로)
+    if (task && !deviceStarted && node.gate?.platform_run && (!node.gate.platforms || node.gate.platforms.includes("android")) && taskPlatforms(root, config, task).includes("android")) {
+      try {
+        const up = deviceUp(root, deviceSettings(config), H);
+        deviceStarted = !up.already;
+        if (!up.already) log(`가상 기기를 띄웠습니다 (${up.serial}, ${up.bootSeconds}초)`);
+      } catch (e) {
+        if (e instanceof DeviceError) return finish("stopped", `가상 기기를 띄우지 못했습니다: ${e.message}`);
+        throw e;
+      }
+    }
 
     // 사람이 하는 노드: N04는 검토 승인을 기다리고, N01은 스토리를 다시 기다린다 (N12가 준비 안 됨으로 보냄)
     if (node.actor === "human") {

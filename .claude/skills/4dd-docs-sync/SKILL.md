@@ -31,7 +31,7 @@ description: 4DD 저장소 문서(README.md, docs/*.md, site/index.html)와 오�
 4. **게시:** Artifact 도구로 게시합니다. 빌드가 출력한 값을 그대로 씁니다.
    - `url`: `https://claude.ai/artifact/QvwmRXisABunc6DLTiaegf`
    - `file_path`: `docs-view/dist/index.html`
-   - `files`: `{"workflow.html": "docs-view/dist/workflow.html", "harness.html": "docs-view/dist/harness.html", "slices.html": "docs-view/dist/slices.html", "slice1.html": "docs-view/dist/slice1.html", "slice2.html": "docs-view/dist/slice2.html", "glossary.html": "docs-view/dist/glossary.html", "changes.html": "docs-view/dist/changes.html"}`
+   - `files`: `{"workflow.html": "docs-view/dist/workflow.html", "harness.html": "docs-view/dist/harness.html", "slices.html": "docs-view/dist/slices.html", "slice1.html": "docs-view/dist/slice1.html", "slice2.html": "docs-view/dist/slice2.html", "slice3.html": "docs-view/dist/slice3.html", "glossary.html": "docs-view/dist/glossary.html", "changes.html": "docs-view/dist/changes.html"}`
 5. **기록 확인:** 게시가 끝나면 PostToolUse 훅이 `docs-view/sync.json`에 기록하고 "기록했습니다"라고 알려 줍니다. 기록을 거부했다면 그 이유(주소 다름, 페이지 빠짐, 빌드 뒤 원본 변경)를 고치고 다시 게시합니다. `sync.json`은 손으로 고치지 않습니다 (훅이 막습니다).
 6. **검사:** `python3 docs-view/build.py check` 가 "맞음"이어야 합니다.
 7. **커밋:** 문서 변경과 `docs-view/sync.json`을 같은 커밋에 넣습니다.

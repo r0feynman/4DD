@@ -110,3 +110,23 @@ describe("세션 노드 한 차례", () => {
     expect(() => run(fake(() => {}), "N26")).toThrow(/작업 세션 노드가 아닙니다/);
   });
 });
+
+describe("리뷰의 고칠 곳 바로잡기 (조각 3, 2026-11-27 Codex 실제 실행)", () => {
+  it("고른 노드가 지적한 파일을 하나도 못 고치면, 모두 고칠 수 있는 노드로 바꾼다", async () => {
+    const { correctFixIn } = await import("../src/turn.ts");
+    const nodes = loadNodes();
+    const v = (fixIn: "behavior" | "structure" | "acceptance_test" | "unit_test", files: string[], why = "설계와 다름") =>
+      ({ pass: false, cause: "code_bug" as const, fixIn, findings: files.map((file) => ({ file, line: 1, why })) });
+    // tests/e2e의 파일 위치를 structure(N25)로 보냄 → N22
+    expect(correctFixIn(v("structure", ["tests/e2e/android/lib/login-setup.js", "tests/e2e/web/lib/login-fixture.ts"]), nodes)).toBe("acceptance_test");
+    // 하나라도 고칠 수 있으면 그대로 (남은 것은 다음 리뷰가 다시 잡음)
+    expect(correctFixIn(v("structure", ["tests/e2e/web/lib/login-fixture.ts", "src/login-fixture.ts"]), nodes)).toBe("structure");
+    // 동작을 고치라는데 단위 테스트 파일만 가리킴 → N23 (원장 경로처럼 절대 경로와 줄 번호가 붙어도)
+    expect(correctFixIn(v("behavior", ["/p/tests/unit/app.test.ts:12"]), nodes, "/p")).toBe("unit_test");
+    // 테스트가 없다는 지적은 테스트할 코드를 가리키기도 하므로 바로잡지 않는다
+    expect(correctFixIn(v("unit_test", ["src/app.ts"]), nodes)).toBe("unit_test");
+    expect(correctFixIn(v("acceptance_test", ["mobile/App.tsx"]), nodes)).toBe("acceptance_test");
+    // 참고로만 적은 지적은 세지 않는다
+    expect(correctFixIn(v("structure", ["tests/e2e/web/S1.spec.ts"], "참고: 위반 아님"), nodes)).toBe("structure");
+  });
+});

@@ -1,16 +1,17 @@
 // 실제 프로젝트(4dd init)에서 Vitest를 돌려, 노드마다 관문이 통과·실패를 맞게 판정하는지 본다.
 // 시험 프로젝트의 의존 패키지 대신 하네스의 node_modules(vitest가 있음)를 연결해 빠르게 돈다.
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadConfig, type Config } from "../src/config.ts";
-import { runGate, taskScenarios } from "../src/gate.ts";
+import { dependencyChange, designMentions, runGate, taskScenarios } from "../src/gate.ts";
 import { git } from "../src/git.ts";
 import { initProject } from "../src/init.ts";
 import { appendEvent, readEvents } from "../src/ledger.ts";
 import { loadNodes } from "../src/nodes.ts";
+import { featureOfTask, featurePath } from "../src/plan.ts";
 
 const harnessModules = join(dirname(fileURLToPath(import.meta.url)), "..", "node_modules");
 const nodes = loadNodes();
@@ -108,6 +109,14 @@ describe("노드별 관문", () => {
     git(root, ["checkout", "--", "tests/unit/math.test.ts"]);
   });
 
+  it("N23: 설계를 고치러 갔다 N15에서 다시 승인받고 돌아와도 같다 (구현이 이미 새 설계대로일 수 있음)", () => {
+    // 2026-11-27 실제 실행: 리뷰가 arch_wrong(뒤로 가기)을 잡아 설계를 고쳤는데, 구현은 이미 새 설계대로여서 N23이 3번 막힘
+    appendEvent(root, H, { type: "node_end", id: "NR91", node: "N23", task: "T1", result: "pass", minutes: 0 }); // 지난 N04 승인 뒤 N23이 통과함
+    expect(gate("N23").runs.some((r) => r.result === "fail")).toBe(true); // N04 승인 뒤 이미 통과했으므로 다시 실패를 요구
+    appendEvent(root, H, { type: "human", id: "HU92", node: "N15", task: "T1", kind: "approve", review: "RV10" });
+    expect(gate("N23").runs.every((r) => r.result === "pass")).toBe(true);
+  });
+
   it("N26: 인수 테스트가 통과하면 통과", () => {
     expect(gate("N26").passed).toBe(true);
   });
@@ -152,6 +161,16 @@ describe("노드별 관문", () => {
       ["locked_unchanged", true],
     ]);
     expect(after.passed).toBe(true);
+  });
+
+  it("N28: N24가 막혀 사람이 구현을 확인하고 approve --to로 넘겼으면 TDD 순서로 친다 (2026-11-27 실제 실행)", () => {
+    // 앞 묶음이 T1의 통과 기록을 남겼으므로 다른 작업(T2)으로 본다
+    const t2 = () => gate("N28", "T2").checks.find((c) => c.name === "tdd_order");
+    appendEvent(root, H, { type: "node_end", id: "NR13", node: "N23", task: "T2", result: "pass", minutes: 1 });
+    appendEvent(root, H, { type: "node_end", id: "NR14", node: "N24", task: "T2", result: "fail", minutes: 1 });
+    expect(t2()).toMatchObject({ ok: false });
+    appendEvent(root, H, { type: "human", id: "HU1", node: "N24", task: "T2", kind: "approve", reason: "budget_exceeded", to: "N25", by: "dev" });
+    expect(t2()).toMatchObject({ ok: true, detail: expect.stringContaining("사람이 N24의 구현을 확인") });
   });
 
   it("N28: 건너뛰기 표시가 새로 생기면 실패", () => {
@@ -204,5 +223,63 @@ describe("작업의 시나리오만 돌리기", () => {
     const { run_files: _, ...rest } = config.commands;
     const r = gate("N26", "T1", { ...config, commands: rest });
     expect(r.runs[0].command).toBe("npx vitest run tests/acceptance tests/acceptance/S1.test.ts");
+  });
+});
+
+describe("새 패키지 설치 (조각 3, 2026-11-27 실제 실행)", () => {
+  // 작업 세션은 설치 명령을 돌릴 수 없으므로 하네스가 관문 전에 설치한다. 시험에서는 설치 명령을 가짜로 바꾼다
+  const withInstall = (install: string): Config => ({ ...config, commands: { ...config.commands, install } });
+  const addDep = (name: string) => {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies?: Record<string, string> };
+    pkg.dependencies = { ...(pkg.dependencies ?? {}), [name]: "1.0.0" };
+    writeFileSync(join(root, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+  };
+  const restore = () => git(root, ["checkout", "--", "package.json", "specs"]);
+
+  it("설계 글에 이름이 그대로 있어야 한다 (다른 이름의 일부는 치지 않음)", () => {
+    expect(designMentions("`mobile/package.json`에 `expo-splash-screen`을 더한다", "expo-splash-screen")).toBe(true);
+    expect(designMentions("`expo-splash-screen`을 더한다", "expo")).toBe(false);
+    expect(designMentions("@scope/ui 패키지", "@scope/ui")).toBe(true);
+    expect(designMentions("없음", "left-pad")).toBe(false);
+  });
+
+  it("package.json의 패키지가 바뀌지 않았으면 설치하지 않는다", () => {
+    expect(dependencyChange(root, "package.json")).toBeNull();
+    expect(dependencyChange(root, "mobile/package.json")).toBeNull();
+  });
+
+  it("설계에 없는 패키지를 더하면 설치하지 않고 관문 실패로 알린다", () => {
+    addDep("left-pad");
+    expect(dependencyChange(root, "package.json")).toEqual({ added: ["left-pad"] });
+    const r = gate("N24", "T1", withInstall("echo 설치함"));
+    expect(r.passed).toBe(false);
+    expect(r.cause).toBeUndefined();
+    expect(r.runs).toHaveLength(0);
+    expect(r.summary).toContain("에 없는 패키지를 더했습니다: `left-pad`(package.json)");
+    restore();
+  });
+
+  it("설계에 적힌 패키지면 관문 명령보다 먼저 설치하고 원장에 남긴다", () => {
+    const feature = featureOfTask(root, "T1")!;
+    appendFileSync(join(root, featurePath(feature, "design.md")), "\n- 왼쪽 채우기는 `left-pad`를 쓴다\n");
+    addDep("left-pad");
+    const r = gate("N24", "T1", withInstall("echo 설치함"));
+    expect(r.runs[0]).toMatchObject({ command: "echo 설치함", result: "pass" });
+    const ev = readEvents(root).events.filter((e) => e.type === "gate_run").at(-r.runs.length);
+    expect(ev).toMatchObject({ install: true, exit: 0 });
+    restore();
+  });
+
+  it("판이 틀려 설치가 실패하면 세션이 고칠 일, 그 밖의 실패는 실행 환경 문제(env)", () => {
+    const feature = featureOfTask(root, "T1")!;
+    appendFileSync(join(root, featurePath(feature, "design.md")), "\n- `left-pad`\n");
+    addDep("left-pad");
+    const wrong = gate("N24", "T1", withInstall("echo 'npm error code ETARGET'; exit 1"));
+    expect(wrong).toMatchObject({ passed: false });
+    expect(wrong.cause).toBeUndefined();
+    expect(wrong.summary).toContain("판이 틀렸습니다");
+    const net = gate("N24", "T1", withInstall("echo 'npm error code ECONNRESET'; exit 1"));
+    expect(net).toMatchObject({ passed: false, cause: "env" });
+    restore();
   });
 });

@@ -18,8 +18,47 @@ const ConfigSchema = z.strictObject({
     run_files: z.string().min(1).optional(),
     build: z.string().min(1).optional(),
     visual: z.string().min(1).optional(),
+    /** 작업이 package.json에 더한 패키지를 관문 전에 설치하는 명령 (그 package.json이 있는 폴더에서 돎). 없으면 npm install --no-audit --no-fund */
+    install: z.string().min(1).optional(),
+    /** 화면 기능의 플랫폼별 명령 (조각 3): build는 앱을 빌드해 기기에 올림, run_files는 플로우·테스트 파일을 받아 돌림 */
+    e2e: z
+      .strictObject({
+        // flow_seconds: 플로우 파일 하나에 더 주는 시간 (관문 시간 제한 = 기본 10분 + 파일 수 × 이 값). 기본 Android 180초, 웹 60초
+        android: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1), flow_seconds: z.number().int().positive().optional() }).optional(),
+        web: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1), flow_seconds: z.number().int().positive().optional() }).optional(),
+      })
+      .optional(),
   }),
   locked: z.array(z.string().min(1)).default([]),
+  /**
+   * Figma (조각 3). server: 오너가 `claude mcp add`로 등록하고 로그인한 Figma MCP 서버 이름 (작업 세션은 이 서버 하나만 엶),
+   * plan: 디자인 시스템(N00F)이 Figma 파일을 만들 팀 (없으면 쓰기 시트가 있는 유일한 팀)
+   */
+  figma: z
+    .strictObject({
+      server: z.string().min(1).default("figma-4dd"),
+      url: z.string().url().default("https://mcp.figma.com/mcp"),
+      plan: z.string().regex(/^(team|organization)::\d+$/).optional(),
+    })
+    .optional(),
+  /**
+   * 화면 비교 (조각 3, N26F). 사람이 정하는 기준이라 잠긴 설정에 둔다: 허용 비율(%), 시나리오별 예외, 비교에서 뺄 위·아래 띠(px)
+   */
+  visual: z
+    .strictObject({
+      tolerance_percent: z.number().min(0).max(100).optional(),
+      overrides: z.record(z.string().regex(/^S\d+$/), z.number().min(0).max(100)).optional(),
+      ignore: z.strictObject({ top: z.number().int().min(0).optional(), bottom: z.number().int().min(0).optional() }).optional(),
+    })
+    .optional(),
+  /** 가상 기기 (조각 3, 모바일). avd 이름, SDK 경로(없으면 ANDROID_HOME, ~/Android/Sdk), 부팅 기다리는 시간 */
+  device: z
+    .strictObject({
+      avd: z.string().min(1).optional(),
+      sdk: z.string().min(1).optional(),
+      boot_timeout_sec: z.number().int().min(10).optional(),
+    })
+    .optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

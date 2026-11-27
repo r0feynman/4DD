@@ -32,8 +32,8 @@ const TASKS = "# 작업 목록: 비밀번호 재설정 (N14)\n\n- [ ] T4 재설�
 const SPRINT = (backlog: string) => `# 스프린트\n\n## 목표\n비밀번호를 잊은 사용자가 스스로 다시 로그인할 수 있다.\n\n## 기능\n- ${F}\n\n## 백로그\n${backlog}`;
 
 /** Stage 0·1은 정해진 문서를 쓰고, Stage 2는 작업 Tn마다 시나리오 Sn과 src/tn.ts를 쓰는 각본 에이전트 */
-function planningAgent(): Adapter & { calls: { node: string; unit: string; session: string | null; readOnly: boolean }[] } {
-  const calls: { node: string; unit: string; session: string | null; readOnly: boolean }[] = [];
+function planningAgent(): Adapter & { calls: { node: string; unit: string; session: string | null; readOnly: boolean; prompt: string }[] } {
+  const calls: { node: string; unit: string; session: string | null; readOnly: boolean; prompt: string }[] = [];
   const units: Record<string, number> = {};
   return {
     agent: "claude",
@@ -42,7 +42,7 @@ function planningAgent(): Adapter & { calls: { node: string; unit: string; sessi
       const node = req.env.FOURDD_NODE;
       const task = /^# 4DD 하네스 · .* · 작업 (T\d+)$/m.exec(req.prompt)?.[1];
       const unit = task ?? `${req.env.FOURDD_FEATURE}@${node[1]}`;
-      calls.push({ node, unit, session: req.sessionId, readOnly: !!req.readOnly });
+      calls.push({ node, unit, session: req.sessionId, readOnly: !!req.readOnly, prompt: req.prompt });
       if (req.sessionId === null) {
         const { events } = readEvents(req.root);
         appendEvent(req.root, nodes.version, { type: "hook_run", id: nextId(events, "HR"), hook: "claude.session_start", check: "session", run: req.env.FOURDD_NODE_RUN, result: "allowed" });
@@ -112,6 +112,9 @@ describe("각본 PO로 스토리부터 Stage 2 끝까지 (로그인에 두 번�
     expect(r.reason, r.message).toBe("wait_human");
     expect(seq().filter((x) => /^N1\d/.test(x))).toEqual(["N11:pass", "N12:pass", "N13:pass", "N14:pass", "N15:pass"]);
     expect(agent.calls.filter((c) => c.readOnly).map((c) => c.node)).toEqual(["N13", "N14"]);
+    // 리뷰 지적은 PO가 검토 페이지에서 읽으므로 한국어로 (조각 3 실제 실행에서 영어로 나옴)
+    expect(agent.calls.filter((c) => c.readOnly).every((c) => c.prompt.includes("지적(why)은 한국어로"))).toBe(true);
+    expect(agent.calls.filter((c) => !c.readOnly).some((c) => c.prompt.includes("지적(why)은 한국어로"))).toBe(false);
     const stage1 = agent.calls.filter((c) => !c.readOnly && /^N1/.test(c.node));
     expect(stage1[0].session).toBeNull();
     expect(stage1.slice(1).every((c) => c.session === `sess-${F}@1`)).toBe(true);

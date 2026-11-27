@@ -71,6 +71,13 @@ describe("다음 할 일 정하기", () => {
     expect(next([...budget, human("approve", { reason: "budget_exceeded" })])).toEqual({ kind: "node", node: "N23" });
   });
 
+  it("사람이 approve --to로 이어 갈 노드를 정하면 같은 노드를 다시 하지 않고 그 노드로 (2026-11-27 실제 실행)", () => {
+    // 리뷰가 단위 테스트만 요구했는데 N23이 「처음엔 실패」를 못 채워 횟수 제한에 걸림
+    const stuck = [...picked(), end({ node: "N23", result: "fail" }), classify("N23", "budget_exceeded", true)];
+    expect(next([...stuck, human("approve", { node: "N23", reason: "budget_exceeded" })])).toEqual({ kind: "node", node: "N23" });
+    expect(next([...stuck, human("approve", { node: "N23", reason: "budget_exceeded", to: "N27" })])).toEqual({ kind: "node", node: "N27" });
+  });
+
   it("힌트는 다시 시도: 판단 노드면 고치러 가는 노드로", () => {
     const ev = [...picked(), end({ node: "N26", result: "fail", cause: "code_bug" }), classify("N26", "budget_exceeded", true), human("hint")];
     expect(next(ev)).toEqual({ kind: "node", node: "N23" });
@@ -121,5 +128,45 @@ describe("하네스가 정한 갈 곳", () => {
   it("실패한 판단 노드에 next가 있으면 원인 경로 대신 그리로", () => {
     const ev = [...picked(), { ...base, type: "node_end", id: `NR${++n}`, node: "N27", task: "T1", result: "fail", cause: "code_bug", next: "N22", loaded: [], minutes: 0 } as LedgerEvent];
     expect(next(ev)).toEqual({ kind: "node", node: "N22" });
+  });
+});
+
+describe("화면 기능의 Stage 0 (조각 3)", () => {
+  let k = 1000;
+  const planEnd = (node: string, feature = "login-screen", extra: Record<string, unknown> = {}): LedgerEvent[] => {
+    k++;
+    return [
+      { ...base, type: "node_start", id: `NR${k}`, node, task: null, feature, session: null } as LedgerEvent,
+      { ...base, type: "node_end", id: `NR${k}`, node, task: null, feature, result: "pass", loaded: [], minutes: 0, ...extra } as LedgerEvent,
+    ];
+  };
+  const go = (events: LedgerEvent[], type: "mobile" | "backend") => decideNext(events, nodes, type, rebuildState(events));
+
+  it("화면 기능은 N03 뒤 디자인 시스템(처음 한 번) → 와이어프레임 → 완성 화면 → N04, 백엔드는 바로 N04", () => {
+    const n03 = [...planEnd("N01"), ...planEnd("N02"), ...planEnd("N03")];
+    expect(go(n03, "backend")).toEqual({ kind: "node", node: "N04" });
+    expect(go(n03, "mobile")).toEqual({ kind: "node", node: "N00F" });
+    expect(go([...n03, ...planEnd("N00F")], "mobile")).toEqual({ kind: "node", node: "N03W" });
+    expect(go([...n03, ...planEnd("N00F"), ...planEnd("N03W")], "mobile")).toEqual({ kind: "node", node: "N03F" });
+    expect(go([...n03, ...planEnd("N00F"), ...planEnd("N03W"), ...planEnd("N03F")], "mobile")).toEqual({ kind: "node", node: "N04" });
+  });
+
+  it("디자인 시스템은 프로젝트에 한 번: 앞 기능에서 통과했으면 다음 화면 기능은 와이어프레임으로", () => {
+    const first = [...planEnd("N00F", "login-screen")];
+    const second = [...first, ...planEnd("N01", "signup-screen"), ...planEnd("N02", "signup-screen"), ...planEnd("N03", "signup-screen")];
+    expect(go(second, "mobile")).toEqual({ kind: "node", node: "N03W" });
+  });
+});
+
+describe("물을 것이 남으면 디자인 전에 묻기 (조각 3)", () => {
+  it("hold가 디자인 노드를 막으면 N03 뒤 바로 N04", () => {
+    const base2 = { ts: "2026-11-27T00:00:00.000Z", schema_version: 1 as const, harness: "0.3.0" };
+    const ev: LedgerEvent[] = ["N01", "N02", "N03"].flatMap((node, i) => [
+      { ...base2, type: "node_start", id: `NR${900 + i}`, node, task: null, feature: "f", session: null } as LedgerEvent,
+      { ...base2, type: "node_end", id: `NR${900 + i}`, node, task: null, feature: "f", result: "pass", loaded: [], minutes: 0 } as LedgerEvent,
+    ]);
+    const design = (n: string) => nodes.nodes[n]?.method === "figma" && nodes.nodes[n]?.stage === 0;
+    expect(decideNext(ev, nodes, "mobile", rebuildState(ev), design)).toEqual({ kind: "node", node: "N04" });
+    expect(decideNext(ev, nodes, "mobile", rebuildState(ev))).toEqual({ kind: "node", node: "N00F" });
   });
 });

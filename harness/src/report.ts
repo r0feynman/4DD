@@ -37,7 +37,35 @@ export interface Report {
   alreadyMet: string[];
   /** 기능별 Stage 0·1 지표 (조각 2) */
   features: FeatureMetrics[];
+  /** 화면 기능 지표 (조각 3). 화면 비교·기기·빌드·Figma 기록이 없으면 null */
+  screens: ScreenMetrics | null;
 }
+
+export interface ScreenMetrics {
+  /** 플랫폼별 N26F 첫 통과: 작업마다 첫 N26F 실행에서 그 플랫폼의 비교가 모두 통과했나 */
+  firstPass: { platform: string; tasks: number; passed: number }[];
+  /** N26F가 ui_mismatch로 N24에 보낸 횟수 */
+  uiMismatch: number;
+  /** 화면 비교 차이 비율(%)의 분포 */
+  diffs: { platform: string; count: number; min: number; median: number; max: number; over: number; buckets: Record<string, number> }[];
+  /** 디자인 단계로 돌아간 원인 (design_wrong, design_missing_state) */
+  designReturns: Record<string, number>;
+  /** 노드별 Figma 도구 호출 수 */
+  figmaByNode: { node: string; read: number; write: number }[];
+  /** 가상 기기 부팅 시간(초) */
+  boots: number[];
+  /** 플랫폼별 앱 빌드와 플로우 실행 시간(초) */
+  builds: { platform: string; count: number; avgSeconds: number; maxSeconds: number }[];
+  flows: { platform: string; count: number; avgSeconds: number; maxSeconds: number }[];
+}
+
+export const DIFF_BUCKETS = [
+  { label: "1% 이하", max: 1 },
+  { label: "1~2%", max: 2 },
+  { label: "2~5%", max: 5 },
+  { label: "5~10%", max: 10 },
+  { label: "10% 넘음", max: Infinity },
+] as const;
 
 export interface FeatureMetrics {
   feature: string;
@@ -61,8 +89,43 @@ export interface FeatureMetrics {
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 const inc = (m: Map<string, number>, k: string, by = 1) => m.set(k, (m.get(k) ?? 0) + by);
 
+/**
+ * 노드 실행마다 그 차례 몫의 표시 가격.
+ * session_cost가 있으면 cost_usd가 이미 그 차례 몫이다. 옛 기록(2026-11-27 전)은 이어 쓴 Claude 세션의 누적 금액이 cost_usd에 들어 있어,
+ * 같은 세션의 직전 값을 뺀다. 세션이 적히지 않은 판단 노드(원인 분류 차례)는 그 작업의 바로 앞 작업 세션으로 본다.
+ */
+export function ownCosts(events: LedgerEvent[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const last = new Map<string, number>();
+  const taskSession = new Map<string, string>();
+  for (const e of events) {
+    if (e.type !== "node_end" || e.cost_usd === undefined) {
+      if (e.type === "node_end" && e.session && e.task) taskSession.set(e.task, e.session);
+      continue;
+    }
+    if (e.session_cost) {
+      out.set(e.id, e.cost_usd);
+      last.set(e.session_cost.session, e.session_cost.usd);
+      if (e.session && e.task) taskSession.set(e.task, e.session);
+      continue;
+    }
+    const session = e.session ?? (e.task ? taskSession.get(e.task) : undefined);
+    if (!session) {
+      out.set(e.id, e.cost_usd);
+      continue;
+    }
+    const before = last.get(session) ?? 0;
+    out.set(e.id, Math.max(0, e.cost_usd - before));
+    last.set(session, Math.max(before, e.cost_usd));
+    if (e.session && e.task) taskSession.set(e.task, e.session);
+  }
+  return out;
+}
+
 export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
   const ends = events.filter((e): e is NodeEnd => e.type === "node_end");
+  const own = ownCosts(events);
+  const costOf = (e: NodeEnd) => own.get(e.id) ?? 0;
   const starts = new Map(events.filter((e): e is NodeStart => e.type === "node_start").map((e) => [e.id, e]));
   const taskIds = [...new Set(ends.map((e) => e.task).filter((t): t is string => !!t))];
   const isDecision = (n: string) => nodes.nodes[n]?.kind === "decision";
@@ -101,7 +164,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
       tokensIn: mine.reduce((n, e) => n + (e.tokens?.input ?? 0), 0),
       tokensOut: mine.reduce((n, e) => n + (e.tokens?.output ?? 0), 0),
       tokensCached: mine.reduce((n, e) => n + (e.tokens?.cached ?? 0), 0),
-      costUsd: round(mine.reduce((n, e) => n + (e.cost_usd ?? 0), 0), 3),
+      costUsd: round(mine.reduce((n, e) => n + costOf(e), 0), 3),
       minutes: round(mine.reduce((n, e) => n + e.minutes, 0)),
       done: mine.some((e) => e.task_done),
     };
@@ -140,7 +203,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     const c = cost.get(e.node) ?? { tokens: 0, minutes: 0, costUsd: 0 };
     c.tokens += (e.tokens?.input ?? 0) + (e.tokens?.output ?? 0);
     c.minutes += e.minutes;
-    c.costUsd += e.cost_usd ?? 0;
+    c.costUsd += costOf(e);
     cost.set(e.node, c);
   }
   // 지시문 버전(해시)별로 첫 차례에 통과한 비율
@@ -170,7 +233,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
   }
 
   const split = (k: string) => k.split("|");
-  const features = featureMetrics(events, ends, nodes);
+  const features = featureMetrics(events, ends, nodes, own);
   return {
     tasks,
     totals,
@@ -183,6 +246,70 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     byAgent: [...agents].map(([agent, v]) => ({ agent, runs: v.runs, passRate: round(v.pass / v.runs), tokens: v.tokens })),
     alreadyMet: [...new Set(ends.filter((e) => e.already_met && e.task).map((e) => e.task as string))],
     features,
+    screens: screenMetrics(events, ends),
+  };
+}
+
+type GateRun = Extract<LedgerEvent, { type: "gate_run" }>;
+
+/** 화면 기능 지표 (조각 3 명세 「보고서에 더하는 것」) */
+function screenMetrics(events: LedgerEvent[], ends: NodeEnd[]): ScreenMetrics | null {
+  const runs = events.filter((e): e is GateRun => e.type === "gate_run");
+  const visual = runs.filter((e) => !!e.scenario && !!e.platform);
+  const devices = events.filter((e): e is Extract<LedgerEvent, { type: "device" }> => e.type === "device");
+  const figma = ends.filter((e) => e.figma_calls);
+  const timed = runs.filter((e) => e.platform && !e.scenario && e.seconds !== undefined);
+  if (!visual.length && !devices.length && !figma.length && !timed.length) return null;
+  const platforms = [...new Set([...visual, ...timed].map((e) => e.platform as string))].sort();
+
+  // 작업마다 첫 N26F 실행
+  const firstRun = new Map<string, string>();
+  for (const e of visual) if (e.task && !firstRun.has(e.task)) firstRun.set(e.task, e.run);
+  const firstPass = platforms.map((platform) => {
+    const tried = [...firstRun].filter(([task, run]) => visual.some((e) => e.task === task && e.run === run && e.platform === platform));
+    const passed = tried.filter(([task, run]) => visual.filter((e) => e.task === task && e.run === run && e.platform === platform).every((e) => e.result === "pass")).length;
+    return { platform, tasks: tried.length, passed };
+  });
+
+  const diffs = platforms.map((platform) => {
+    const xs = visual.filter((e) => e.platform === platform && e.diff_percent !== undefined).map((e) => e.diff_percent as number).sort((a, b) => a - b);
+    const buckets: Record<string, number> = {};
+    for (const x of xs) {
+      const b = DIFF_BUCKETS.find((k) => x <= k.max)!;
+      buckets[b.label] = (buckets[b.label] ?? 0) + 1;
+    }
+    const over = visual.filter((e) => e.platform === platform && e.diff_percent !== undefined && e.result === "fail").length;
+    return { platform, count: xs.length, min: xs[0] ?? 0, median: xs.length ? xs[Math.floor((xs.length - 1) / 2)] : 0, max: xs.at(-1) ?? 0, over, buckets };
+  }).filter((d) => d.count > 0);
+
+  const designReturns: Record<string, number> = {};
+  for (const e of ends) if (e.result === "fail" && (e.cause === "design_wrong" || e.cause === "design_missing_state")) designReturns[e.cause] = (designReturns[e.cause] ?? 0) + 1;
+
+  const fig = new Map<string, { read: number; write: number }>();
+  for (const e of figma) {
+    const v = fig.get(e.node) ?? { read: 0, write: 0 };
+    v.read += e.figma_calls!.read;
+    v.write += e.figma_calls!.write;
+    fig.set(e.node, v);
+  }
+
+  const timing = (pick: (e: GateRun) => boolean) =>
+    platforms
+      .map((platform) => {
+        const xs = timed.filter((e) => e.platform === platform && pick(e)).map((e) => e.seconds as number);
+        return { platform, count: xs.length, avgSeconds: xs.length ? round(xs.reduce((a, b) => a + b, 0) / xs.length, 1) : 0, maxSeconds: xs.length ? Math.max(...xs) : 0 };
+      })
+      .filter((x) => x.count > 0);
+
+  return {
+    firstPass: firstPass.filter((x) => x.tasks > 0),
+    uiMismatch: ends.filter((e) => e.node === "N26F" && e.result === "fail" && e.cause === "ui_mismatch").length,
+    diffs,
+    designReturns,
+    figmaByNode: [...fig].map(([node, v]) => ({ node, ...v })).sort((a, b) => b.read + b.write - (a.read + a.write)),
+    boots: devices.filter((e) => e.action === "up" && e.result === "ok" && e.boot_seconds !== undefined).map((e) => e.boot_seconds as number),
+    builds: timing((e) => !!e.build),
+    flows: timing((e) => !e.build),
   };
 }
 
@@ -190,7 +317,7 @@ type Human = Extract<LedgerEvent, { type: "human" }>;
 type ReviewEv = Extract<LedgerEvent, { type: "review" }>;
 
 /** 기능별 Stage 0·1 지표. 작업은 패킷 1 → 2(N15 승인)에 담긴 T로 그 기능에 묶는다. */
-function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet): FeatureMetrics[] {
+function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet, own: Map<string, number> = ownCosts(events)): FeatureMetrics[] {
   const names = [...new Set([...ends.map((e) => e.feature), ...events.map((e) => (e.type === "human" ? e.feature : undefined))].filter((f): f is string => !!f))];
   return names.map((feature) => {
     const tasks = new Set(events.flatMap((e) => (e.type === "packet" && e.feature === feature && e.boundary === "1-2" ? e.refs.filter((r) => /^T\d+$/.test(r)) : [])));
@@ -231,7 +358,7 @@ function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet):
       const v = stageMap.get(st) ?? { tokens: 0, minutes: 0, costUsd: 0 };
       v.tokens += (e.tokens?.input ?? 0) + (e.tokens?.output ?? 0);
       v.minutes += e.minutes;
-      v.costUsd += e.cost_usd ?? 0;
+      v.costUsd += own.get(e.id) ?? 0;
       stageMap.set(st, v);
     }
     return {
@@ -272,6 +399,21 @@ export function renderReport(r: Report): string {
       lines.push(`| ${f.feature} | ${f.humansTotal}번: ${hs} | ${f.scripted}번 | ${waits} | ${kv(f.n04Rejects)} | ${kv(f.planFails)} | ${kv(f.returns)} | ${st} |`);
     }
     lines.push("", "- N04 되돌림이 잦으면 스펙 초안(N02)이 스토리를 덜 옮긴 것이고, Stage 2에서 돌아감이 있으면 Stage 0·1이 놓친 것입니다. 둘 다 N02·N13 지시문의 「주의점」 후보입니다.");
+  }
+  if (r.screens) {
+    const sc = r.screens;
+    const kv = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${k} ${v}`).join(", ") || "없음";
+    lines.push("", "## 화면 기능 (조각 3)", "");
+    lines.push(`- N26F 첫 통과: ${sc.firstPass.map((x) => `${x.platform} ${x.passed}/${x.tasks}`).join(", ") || "-"} · ui_mismatch로 N24에 보냄 ${sc.uiMismatch}번`);
+    lines.push(`- 디자인 단계로 돌아감: ${kv(sc.designReturns)}`);
+    lines.push(`- 가상 기기 부팅: ${sc.boots.length ? sc.boots.map((x) => `${x}초`).join(", ") : "-"}`);
+    lines.push(`- 앱 빌드: ${sc.builds.map((x) => `${x.platform} ${x.count}번 평균 ${x.avgSeconds}초 (가장 길게 ${x.maxSeconds}초)`).join(", ") || "-"}`);
+    lines.push(`- 플로우 실행: ${sc.flows.map((x) => `${x.platform} ${x.count}번 평균 ${x.avgSeconds}초 (가장 길게 ${x.maxSeconds}초)`).join(", ") || "-"}`);
+    lines.push(`- Figma 호출 (읽기·쓰기): ${sc.figmaByNode.map((x) => `${x.node} ${x.read}·${x.write}`).join(", ") || "-"}`);
+    if (sc.diffs.length) {
+      lines.push("", "### 화면 비교 차이 비율 (허용 비율을 정할 근거)", "", `| 플랫폼 | 비교 | 가장 작음 | 가운데 | 가장 큼 | 허용 넘음 | ${DIFF_BUCKETS.map((b) => b.label).join(" | ")} |`, `|---|---|---|---|---|---|${DIFF_BUCKETS.map(() => "---|").join("")}`);
+      for (const d of sc.diffs) lines.push(`| ${d.platform} | ${d.count} | ${d.min}% | ${d.median}% | ${d.max}% | ${d.over} | ${DIFF_BUCKETS.map((b) => d.buckets[b.label] ?? 0).join(" | ")} |`);
+    }
   }
   lines.push("", "## 반복 실수와 비효율", "");
   const list = (title: string, rows: string[]) => lines.push(`### ${title}`, "", ...(rows.length ? rows.map((x) => `- ${x}`) : ["- 없음"]), "");

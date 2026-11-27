@@ -1,5 +1,10 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseHookPayload, patchPaths } from "../src/hooks.ts";
+import { parseHookPayload, patchPaths, runHook } from "../src/hooks.ts";
+import { readEvents } from "../src/ledger.ts";
+import { countFigmaCalls } from "../src/turn.ts";
 
 describe("훅 입력 읽기", () => {
   it("Claude 편집 도구는 file_path를 읽는다", () => {
@@ -33,5 +38,22 @@ describe("훅 입력 읽기", () => {
 
   it("모르는 도구는 파일도 명령도 없다", () => {
     expect(parseHookPayload("claude", { hook_event_name: "PreToolUse", tool_name: "WebSearch", tool_input: { query: "x" } })).toMatchObject({ paths: [], command: null });
+  });
+});
+
+describe("Figma 도구 호출 세기 (조각 3)", () => {
+  it("Figma MCP 도구는 막지 않고 원장에 남기고, 노드 실행별로 읽기·쓰기를 센다", () => {
+    const root = mkdtempSync(join(tmpdir(), "4dd-hook-figma-"));
+    const env = { FOURDD_ROOT: root, FOURDD_NODE: "N03F", FOURDD_NODE_RUN: "NR5", FOURDD_FEATURE: "login-screen" };
+    const call = (tool: string, run = env) => runHook("claude", { hook_event_name: "PreToolUse", tool_name: tool, tool_input: {} }, run);
+    expect(call("mcp__figma-4dd__get_screenshot")).toEqual({ exitCode: 0, message: "" });
+    call("mcp__figma-4dd__get_metadata");
+    call("mcp__figma-4dd__use_figma");
+    call("mcp__figma-4dd__get_screenshot", { ...env, FOURDD_NODE_RUN: "NR6" });
+    call("WebSearch");
+    const { events } = readEvents(root);
+    expect(events.filter((e) => e.type === "hook_run").map((e) => (e.type === "hook_run" ? e.check : ""))).toEqual(["figma", "figma", "figma", "figma"]);
+    expect(countFigmaCalls(events, "NR5")).toEqual({ read: 2, write: 1 });
+    expect(countFigmaCalls(events, "NR6")).toEqual({ read: 1, write: 0 });
   });
 });

@@ -14,7 +14,7 @@ import { HUMAN_DIR } from "./context.ts";
 import { git } from "./git.ts";
 import { appendEvent, DIR, nextId, readEvents } from "./ledger.ts";
 import { computeBaseline, writeBaseline } from "./lock.ts";
-import { CAUSES, loadNodes, type Cause } from "./nodes.ts";
+import { CAUSES, getNode, loadNodes, type Cause } from "./nodes.ts";
 import { loadState } from "./state.ts";
 
 export type HumanKind = "approve" | "hint" | "reclassify" | "hold";
@@ -47,7 +47,18 @@ export function addLearningCandidate(root: string, harness: string, text: string
   return id;
 }
 
-export function humanAction(root: string, kind: HumanKind, arg?: string, minutes?: number): string {
+export interface HumanOptions {
+  /**
+   * approve: 이 작업 노드의 일을 사람이 확인했으니 같은 노드를 다시 하지 않고 이 노드부터 이어 간다 (2026-11-27 실제 실행).
+   * 하네스 경로가 맞지 않아 같은 노드가 헛도는 때에 쓴다. 같은 스테이지의 노드만 받는다.
+   */
+  to?: string;
+  /** 누가 개입했나 (po · dev · script) */
+  by?: "po" | "dev" | "script";
+  channel?: "chat" | "terminal";
+}
+
+export function humanAction(root: string, kind: HumanKind, arg?: string, minutes?: number, opts: HumanOptions = {}): string {
   const nodes = loadNodes();
   const H = nodes.version;
   const { state } = loadState(root);
@@ -59,7 +70,18 @@ export function humanAction(root: string, kind: HumanKind, arg?: string, minutes
   const { events } = readEvents(root);
   const id = nextId(events, "HU");
   // 작업 없이 Stage 0·1을 도는 기능이면 기능으로 묶는다 (조각 2: 다음 차례의 맥락이 그 기능의 사람 말을 찾음)
-  const extra = { ...(minutes !== undefined ? { minutes } : {}), ...(!task && state.planning ? { feature: state.planning } : {}) };
+  const extra = {
+    ...(minutes !== undefined ? { minutes } : {}),
+    ...(!task && state.planning ? { feature: state.planning } : {}),
+    ...(opts.by ? { by: opts.by } : {}),
+    ...(opts.channel ? { channel: opts.channel } : {}),
+  };
+  if (opts.to !== undefined) {
+    if (kind !== "approve") throw new HumanError("--to는 approve에만 씁니다");
+    const target = nodes.nodes[opts.to];
+    if (!target) throw new HumanError(`모르는 노드입니다: ${opts.to}`);
+    if (target.stage !== getNode(nodes, node).stage) throw new HumanError(`--to는 같은 스테이지의 노드만 받습니다 (${node}는 Stage ${getNode(nodes, node).stage}, ${opts.to}는 Stage ${target.stage})`);
+  }
 
   switch (kind) {
     case "approve": {
@@ -71,13 +93,13 @@ export function humanAction(root: string, kind: HumanKind, arg?: string, minutes
         writeFileSync(join(root, HUMAN_DIR, `${id}.md`), arg.trim() + "\n");
         textHash = createHash("sha256").update(arg.trim()).digest("hex").slice(0, 12);
       }
-      appendEvent(root, H, { type: "human", id, node, task, kind: "approve", ...(reason ? { reason } : {}), ...(textHash ? { text_hash: textHash } : {}), ...extra });
+      appendEvent(root, H, { type: "human", id, node, task, kind: "approve", ...(reason ? { reason } : {}), ...(textHash ? { text_hash: textHash } : {}), ...(opts.to ? { to: opts.to } : {}), ...extra });
       git(root, ["add", "-A"]);
       git(root, ["commit", "-q", "--allow-empty", "-m", `human approve (${reason ?? state.status})\n\n4DD-Node: ${node}\n${task ? `4DD-Task: ${task}\n` : ""}4DD-Human: ${id}`], { FOURDD_ALLOW_LOCKED: "1" });
       const sha = git(root, ["rev-parse", "HEAD"]).trim();
       appendEvent(root, H, { type: "commit", sha, node, task });
       loadState(root);
-      return `${id} 승인했습니다. 잠긴 파일의 기준 해시를 새로 고정하고 커밋했습니다 (${sha.slice(0, 7)}). 4dd run으로 이어 갑니다`;
+      return `${id} 승인했습니다. 잠긴 파일의 기준 해시를 새로 고정하고 커밋했습니다 (${sha.slice(0, 7)}). 4dd run으로 ${opts.to ? `${opts.to}부터 ` : ""}이어 갑니다`;
     }
     case "hint": {
       if (!arg?.trim()) throw new HumanError("힌트 글이 필요합니다: 4dd human hint \"<힌트>\"");

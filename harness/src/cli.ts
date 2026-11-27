@@ -21,13 +21,15 @@ import { CAUSES, getNode, loadNodes, type Cause } from "./nodes.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, formatIssues, nextIds } from "./trace.ts";
 import { approveReview, buildReview, recordPublished, rejectReview, tellStory, type Speaker } from "./po.ts";
-import { featureOfTask } from "./plan.ts";
+import { featureOfTask, STORY_TYPES, type StoryType } from "./plan.ts";
+import { bootedSerial, DeviceError, deviceDown, deviceSettings, deviceUp } from "./device.ts";
+import { figmaAccess, figmaCheck, figmaSetupHint } from "./figma.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
   run [--agent claude|codex] [--max-tasks N] [--root 폴더]   지휘 루프. 끝나거나 사람이 필요할 때까지 돈다 (0 끝 · 3 사람 대기 · 1 오류)
-  human <approve|hint|reclassify|hold> [글|원인] [--minutes N] [--root 폴더]   사람 개입을 남기고 다시 시작할 수 있게 한다
-  story --feature <이름> "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]   N01: 스토리를 받아 그 기능의 Stage 0을 시작한다 (PO 창구)
+  human <approve|hint|reclassify|hold> [글|원인] [--minutes N] [--by po|dev] [--to <노드>] [--root 폴더]   사람 개입을 남기고 다시 시작할 수 있게 한다. approve --to는 같은 노드를 다시 하지 않고 그 노드부터 이어 감
+  story --feature <이름> [--type mobile|web|backend] "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]   N01: 스토리를 받아 그 기능의 Stage 0을 시작한다 (PO 창구). --type은 「기능 단위」 프로젝트에서 기능의 작업 유형
   review [--url <주소> [--id RV…]] [--root 폴더]   기다리는 승인(N04, N15)의 검토 페이지를 만든다. --url은 게시한 주소를 남긴다 (PO 창구)
   human approve --review <RV…> --quote "<PO의 말>"   검토 해시를 확인하고 승인, 스테이지 패킷을 남긴다 (PO 창구)
   human reject --review <RV…> (--cause <원인> | --to <노드>) --quote "<PO의 말>"   되돌린다. PO의 말은 다음 차례의 힌트와 학습 후보가 된다 (PO 창구)
@@ -37,6 +39,8 @@ const USAGE = `사용법: 4dd <명령>
   status [폴더] [--root 폴더]                  지금 작업과 노드, 기다리는 이유
   check trace [폴더] [--stage 0]               추적 ID(R, @S, T)가 이어져 있고 프로젝트 전체에서 겹치지 않는지 (--stage 0은 요구사항과 시나리오만)
   ids [폴더] [--json]                          프로젝트에서 다음에 쓸 R, S, T 번호
+  figma check [--agent claude|codex] [--root 폴더]   작업 세션처럼 Figma 서버 하나만 열고 로그인이 이어지는지 확인 (조각 3)
+  device <up|down|status> [--root 폴더]         가상 기기를 창 없이 띄우고 부팅을 기다리거나, 끄거나, 떠 있는지 봄 (조각 3)
   check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
   check bash <명령>                            셸 명령에 하네스만 할 수 있는 git 명령이 있는지
   check hook --tool <claude|codex>             훅 입구 (표준 입력의 훅 JSON을 읽음)
@@ -288,10 +292,15 @@ function main(argv: string[]): number {
       const { pos, opt } = parseArgs(rest);
       const feature = str(opt.feature);
       if (!feature || !pos.length) {
-        err('사용법: 4dd story --feature <기능 이름> "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]');
+        err('사용법: 4dd story --feature <기능 이름> [--type mobile|web|backend] "<PO의 말>" [--by po|dev|script] [--channel chat|terminal]');
         return 1;
       }
-      out(tellStory(resolve(str(opt.root) ?? "."), feature, pos.join(" "), speaker(opt)));
+      const type = str(opt.type);
+      if (type && !(STORY_TYPES as readonly string[]).includes(type)) {
+        err(`--type은 ${STORY_TYPES.join(", ")} 가운데 하나입니다`);
+        return 1;
+      }
+      out(tellStory(resolve(str(opt.root) ?? "."), feature, pos.join(" "), { ...speaker(opt), ...(type ? { type: type as StoryType } : {}) }));
       return 0;
     }
     if (cmd === "review") {
@@ -335,7 +344,8 @@ function main(argv: string[]): number {
         return 1;
       }
       const minutes = str(opt.minutes);
-      out(humanAction(resolve(str(opt.root) ?? "."), kind, pos.slice(1).join(" ") || undefined, minutes ? Number(minutes) : undefined));
+      const who = speaker(opt);
+      out(humanAction(resolve(str(opt.root) ?? "."), kind, pos.slice(1).join(" ") || undefined, minutes ? Number(minutes) : undefined, { ...who, ...(str(opt.to) ? { to: str(opt.to) } : {}) }));
       return 0;
     }
     if (cmd === "report") {
@@ -353,6 +363,57 @@ function main(argv: string[]): number {
       // PO 창구 스킬은 모든 명령에 --root를 붙인다. 폴더를 위치 인자로 줘도 된다
       const { pos, opt } = parseArgs(rest);
       return status(str(opt.root) ?? pos[0]);
+    }
+    if (cmd === "figma" && rest[0] === "check") {
+      const { opt } = parseArgs(rest.slice(1));
+      const root = resolve(str(opt.root) ?? ".");
+      const config = existsSync(join(root, "4dd.config.yaml")) ? loadConfig(root) : undefined;
+      // 작업 도구마다 등록·로그인이 따로다 (Claude는 claude mcp, Codex는 codex mcp)
+      const agent = str(opt.agent) ?? config?.agent ?? "claude";
+      if (agent !== "claude" && agent !== "codex") {
+        err(`--agent는 claude나 codex입니다: ${agent}`);
+        return 1;
+      }
+      const r = figmaCheck(root, config, adapterFor(agent));
+      const cost = r.costUsd !== undefined ? ` (표시 가격 $${r.costUsd.toFixed(2)})` : "";
+      if (r.ok) {
+        out(`Figma에 연결됩니다 (${agent}): ${r.handle ?? "?"} · ${(r.plans ?? []).join(", ")}${cost}`);
+        return 0;
+      }
+      err(`Figma에 연결하지 못했습니다 (${agent}): ${r.error ?? "이유 모름"}${cost}\n${figmaSetupHint(agent, figmaAccess(config, "read"))}`);
+      return 2;
+    }
+    if (cmd === "device") {
+      const { pos, opt } = parseArgs(rest);
+      const root = resolve(str(opt.root) ?? ".");
+      const config = existsSync(join(root, "4dd.config.yaml")) ? loadConfig(root) : undefined;
+      const d = deviceSettings(config);
+      const H = loadNodes().version;
+      try {
+        if (pos[0] === "up") {
+          const r = deviceUp(root, d, H);
+          out(r.already ? `가상 기기 ${d.avd}가 이미 떠 있습니다 (${r.serial})` : `가상 기기 ${d.avd}를 띄웠습니다 (${r.serial}, 부팅 ${r.bootSeconds}초)`);
+          return 0;
+        }
+        if (pos[0] === "down") {
+          const n = deviceDown(root, d, H);
+          out(n ? `가상 기기 ${n}대를 껐습니다` : "떠 있는 가상 기기가 없습니다");
+          return 0;
+        }
+        if (pos[0] === "status") {
+          const s = bootedSerial(d);
+          out(s ? `가상 기기 ${d.avd}: 떠 있음 (${s})` : `가상 기기 ${d.avd}: 꺼져 있음`);
+          return 0;
+        }
+        err("사용법: 4dd device <up|down|status> [--root 폴더]");
+        return 1;
+      } catch (e) {
+        if (e instanceof DeviceError) {
+          err(e.message);
+          return 2;
+        }
+        throw e;
+      }
     }
     if (cmd === "ids") {
       const { pos, opt } = parseArgs(rest);

@@ -76,7 +76,7 @@ export function runHook(tool: Tool, payload: Record<string, unknown>, env: NodeJ
   const root = env.FOURDD_ROOT ?? call.cwd;
   if (!nodeId || !root) return { exitCode: 0, message: "" };
   const node = nodeFor(nodes, nodeId, env.FOURDD_FEATURE);
-  const record = (check: "path" | "bash" | "session", target: string | undefined, result: "allowed" | "blocked") => {
+  const record = (check: "path" | "bash" | "session" | "figma", target: string | undefined, result: "allowed" | "blocked") => {
     const { events } = readEvents(root);
     appendEvent(root, nodes.version, {
       type: "hook_run",
@@ -92,6 +92,12 @@ export function runHook(tool: Tool, payload: Record<string, unknown>, env: NodeJ
   if (call.event === "SessionStart") {
     // 훅이 켜져 있다는 증거. 지휘 프로그램이 첫 차례 뒤에 이 줄이 있는지 본다.
     record("session", undefined, "allowed");
+    return { exitCode: 0, message: "" };
+  }
+
+  // Figma 도구 호출은 세기만 한다 (조각 3: 노드별 호출 수, 하루 한도). 어느 도구를 열지는 세션을 띄울 때 정한다
+  if (call.toolName?.startsWith("mcp__") && /figma/i.test(call.toolName)) {
+    record("figma", call.toolName, "allowed");
     return { exitCode: 0, message: "" };
   }
 

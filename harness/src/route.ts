@@ -10,7 +10,7 @@
 //   검토 승인(조각 2) → 다음 노드. 앞 스테이지로 돌아갔던 작업이면 처음 실패한 곳의 then으로 돌아옴
 
 import type { LedgerEvent } from "./ledger.ts";
-import { failRoute, getNode, goesBack, nextNode, stageRoute, type Cause, type NodeSet, type WorkType } from "./nodes.ts";
+import { failRoute, getNode, goesBack, nextNode, onceDone, stageRoute, type Cause, type NodeSet, type WorkType } from "./nodes.ts";
 import type { State } from "./state.ts";
 
 export type Step =
@@ -80,14 +80,17 @@ function retryTarget(nodes: NodeSet, end: NodeEnd): string {
   return r && r.goto !== "human" ? r.goto : end.node;
 }
 
-function afterReview(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[], state: State, workType: WorkType): Step {
+/** 이 일감에서 통과한 뒤 갈 노드: 작업 유형에 켜지고, 프로젝트에 한 번인 노드는 이미 했으면 건너뜀 */
+type Next = (id: string) => string | null;
+
+function afterReview(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[], state: State, next: Next): Step {
   const node = getNode(nodes, end.node);
   if (h.kind === "approve") {
     // Stage 2에서 돌아왔던 작업이면, 승인 뒤 원래 자리로 (스펙 → N22, 설계 → 다음 작업 고르기)
     if (state.task) return toStep(excursionReturn(nodes, failures));
     if (node.approve?.packet === "1-2") return { kind: "pick" };
-    const next = nextNode(nodes, end.node, workType);
-    return next ? toStep(next) : { kind: "pick" };
+    const after = next(end.node);
+    return after ? toStep(after) : { kind: "pick" };
   }
   // 되돌림: 판단 노드(N04)는 원인별 경로로, 작업 노드(N15)는 사람이 고른 노드로
   if (node.kind === "decision") {
@@ -97,12 +100,12 @@ function afterReview(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[]
   return h.to ? { kind: "node", node: h.to } : { kind: "human", node: end.node, reason: "review" };
 }
 
-function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[], state: State, workType: WorkType): Step {
-  if (h.review && (h.kind === "approve" || h.kind === "reject")) return afterReview(nodes, h, end, failures, state, workType);
+function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[], state: State, next: Next): Step {
+  if (h.review && (h.kind === "approve" || h.kind === "reject")) return afterReview(nodes, h, end, failures, state, next);
   switch (h.kind) {
     case "story":
       // 스토리를 다시 받았다 (N12가 준비 안 됨으로 N01에 보냄): 스펙부터
-      return { kind: "node", node: nextNode(nodes, "N01", workType) ?? "N02" };
+      return { kind: "node", node: next("N01") ?? "N02" };
     case "hold":
       return { kind: "pick" };
     case "hint":
@@ -116,6 +119,8 @@ function afterHuman(nodes: NodeSet, h: Human, end: NodeEnd, failures: Failure[],
       return { kind: "node", node: r.goto };
     }
     default: {
+      // 사람이 노드의 일을 확인하고 이어 갈 노드를 정했다 (approve --to)
+      if (h.kind === "approve" && h.to) return { kind: "node", node: h.to };
       // approve, edit, reject: 사람이 고치거나 승인했다.
       const reason = h.reason ?? end.cause;
       const n = getNode(nodes, end.node);
@@ -145,18 +150,25 @@ function inUnit(e: LedgerEvent, state: State): e is NodeEnd {
   return state.task ? e.task === state.task : e.task === null && !!e.feature && e.feature === state.planning;
 }
 
-export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: WorkType, state: State): Step {
+/**
+ * hold: 지금은 건너뛸 노드 (지휘 프로그램이 파일을 보고 정함). 조각 3: 스펙에 물을 것이 남았으면 디자인 노드를 건너뛰고
+ * N04에서 먼저 묻는다. 답을 받아 스펙이 정해진 뒤에 화면을 한 번만 그린다.
+ */
+export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: WorkType, state: State, hold: (node: string) => boolean = () => false): Step {
+  const once = onceDone(nodes, events);
+  const skip = (n: string) => once(n) || hold(n);
+  const next: Next = (id) => nextNode(nodes, id, workType, skip);
   if (state.status === "waiting_human" && state.waiting) return { kind: "human", node: state.waiting.node, reason: state.waiting.reason };
   if (state.status === "stopped") return { kind: "human", node: state.node ?? "N21", reason: "stopped" };
   if (!state.task && !state.planning) return { kind: "pick" };
 
   const idx = events.findLastIndex((e) => inUnit(e, state));
   // 기능의 첫 노드: 스토리(N01) 다음
-  if (idx < 0) return state.task ? { kind: "pick" } : { kind: "node", node: nextNode(nodes, "N01", workType) ?? "N02" };
+  if (idx < 0) return state.task ? { kind: "pick" } : { kind: "node", node: next("N01") ?? "N02" };
   const end = events[idx] as NodeEnd;
   const ends = events.filter((e): e is NodeEnd => inUnit(e, state));
   const human = events.slice(idx + 1).filter((e): e is Human => e.type === "human").at(-1);
-  if (human) return afterHuman(nodes, human, end, unitFailures(events, nodes, state), state, workType);
+  if (human) return afterHuman(nodes, human, end, unitFailures(events, nodes, state), state, next);
 
   const node = getNode(nodes, end.node);
   if (end.result === "wait") return { kind: "human", node: end.node, reason: node.approve ? "review" : (end.cause ?? "env") };
@@ -169,8 +181,8 @@ export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: Work
     if (metTarget) return { kind: "node", node: metTarget };
     const then = pendingThen(nodes, ends);
     if (then) return toStep(then);
-    const next = nextNode(nodes, end.node, workType);
-    return next ? toStep(next) : { kind: "pick" };
+    const after = next(end.node);
+    return after ? toStep(after) : { kind: "pick" };
   }
   // 실패
   if (node.kind === "work") return { kind: "node", node: end.node };

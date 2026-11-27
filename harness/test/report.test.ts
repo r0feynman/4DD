@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { LedgerEvent } from "../src/ledger.ts";
 import { loadNodes } from "../src/nodes.ts";
-import { buildReport, renderReport } from "../src/report.ts";
+import { buildReport, ownCosts, renderReport } from "../src/report.ts";
+import { perTurnCost } from "../src/turn.ts";
 
 const nodes = loadNodes();
 const base = { ts: "2026-11-25T00:00:00.000Z", schema_version: 1 as const, harness: "0.1.0" };
@@ -65,5 +66,87 @@ describe("4dd report", () => {
     const empty = buildReport([], nodes);
     expect(empty.totals.firstPassRate).toBeNull();
     expect(renderReport(empty)).toContain("| 첫 통과율 (판단 노드) | - |");
+  });
+});
+
+describe("4dd report: 화면 기능 (조각 3)", () => {
+  const gr = (id: string, run: string, task: string, extra: Record<string, unknown>) =>
+    ev({ type: "gate_run", id, node: "N26F", task, run, exit: extra.result === "fail" ? 1 : 0, result: "pass", ...extra });
+  const screenEvents: LedgerEvent[] = [
+    ev({ type: "run_start", run: "RUN1", agent: "claude", feature: "login-screen" }),
+    ev({ type: "device", action: "up", avd: "4dd-api36", result: "ok", boot_seconds: 31 }),
+    ...node("T10", "N03F", "pass", { figma_calls: { read: 12, write: 5 } }),
+    ev({ type: "gate_run", id: "GR1", node: "N26", task: "T10", run: "NR90", exit: 0, result: "pass", platform: "android", build: true, seconds: 200 }),
+    ev({ type: "gate_run", id: "GR2", node: "N26", task: "T10", run: "NR90", exit: 0, result: "pass", platform: "android", seconds: 9.5 }),
+    ev({ type: "gate_run", id: "GR3", node: "N26", task: "T10", run: "NR90", exit: 0, result: "pass", platform: "web", seconds: 2.5 }),
+    // T10 첫 N26F: android 넘음, web 통과 → 고친 뒤 둘 다 통과
+    gr("GR4", "NR91", "T10", { platform: "android", scenario: "S15", diff_percent: 7.2, tolerance: 5, result: "fail" }),
+    gr("GR5", "NR91", "T10", { platform: "web", scenario: "S15", diff_percent: 1.4, tolerance: 5 }),
+    ...node("T10", "N26F", "fail", { cause: "ui_mismatch" }),
+    gr("GR6", "NR92", "T10", { platform: "android", scenario: "S15", diff_percent: 3.1, tolerance: 5 }),
+    gr("GR7", "NR92", "T10", { platform: "web", scenario: "S15", diff_percent: 0.6, tolerance: 5 }),
+    // T11: 첫 차례에 둘 다 통과
+    gr("GR8", "NR93", "T11", { platform: "android", scenario: "S16", diff_percent: 2.2, tolerance: 5 }),
+    gr("GR9", "NR93", "T11", { platform: "web", scenario: "S16", diff_percent: 0.9, tolerance: 5 }),
+    ...node("T11", "N26F", "fail", { cause: "design_wrong" }),
+  ];
+  const sc = buildReport(screenEvents, nodes).screens!;
+
+  it("플랫폼별 N26F 첫 통과와 ui_mismatch, 디자인 되돌림", () => {
+    expect(sc.firstPass).toEqual([
+      { platform: "android", tasks: 2, passed: 1 },
+      { platform: "web", tasks: 2, passed: 2 },
+    ]);
+    expect(sc.uiMismatch).toBe(1);
+    expect(sc.designReturns).toEqual({ design_wrong: 1 });
+  });
+
+  it("차이 비율 분포, Figma 호출, 기기·빌드·플로우 시간", () => {
+    expect(sc.diffs.find((d) => d.platform === "android")).toMatchObject({ count: 3, min: 2.2, median: 3.1, max: 7.2, over: 1, buckets: { "2~5%": 2, "5~10%": 1 } });
+    expect(sc.diffs.find((d) => d.platform === "web")).toMatchObject({ count: 3, max: 1.4, buckets: { "1% 이하": 2, "1~2%": 1 } });
+    expect(sc.figmaByNode).toEqual([{ node: "N03F", read: 12, write: 5 }]);
+    expect(sc.boots).toEqual([31]);
+    expect(sc.builds).toEqual([{ platform: "android", count: 1, avgSeconds: 200, maxSeconds: 200 }]);
+    expect(sc.flows.map((f) => `${f.platform}:${f.avgSeconds}`)).toEqual(["android:9.5", "web:2.5"]);
+    const text = renderReport(buildReport(screenEvents, nodes));
+    expect(text).toContain("## 화면 기능 (조각 3)");
+    expect(text).toContain("N26F 첫 통과: android 1/2, web 2/2 · ui_mismatch로 N24에 보냄 1번");
+    expect(text).toContain("| android | 3 | 2.2% | 3.1% | 7.2% | 1 | 0 | 0 | 2 | 1 | 0 |");
+  });
+
+  it("화면 기록이 없으면 그 칸을 쓰지 않는다", () => {
+    expect(buildReport(events, nodes).screens).toBeNull();
+    expect(renderReport(buildReport(events, nodes))).not.toContain("화면 기능 (조각 3)");
+  });
+});
+
+describe("표시 가격은 차례 몫만 (2026-11-27 실제 실행)", () => {
+  const end = (id: string, task: string, nodeId: string, extra: Record<string, unknown>) =>
+    ev({ type: "node_end", id, node: nodeId, task, result: "pass", loaded: [], minutes: 1, ...extra });
+
+  it("이어 쓴 세션의 누적 금액에서 원장에 남은 직전 누적값을 뺀다", () => {
+    const events = [end("NR1", "T1", "N22", { session: "s1", cost_usd: 0.5, session_cost: { session: "s1", usd: 0.5 } })];
+    const turn = { ok: true, sessionId: "s1", text: "", minutes: 1, timedOut: false, costUsd: 0.8 };
+    expect(perTurnCost(events, turn, "s1")).toEqual({ turn: { ...turn, costUsd: 0.3 }, sessionCost: { session: "s1", usd: 0.8 } });
+    // 새 세션이면 그대로
+    expect(perTurnCost(events, { ...turn, sessionId: "s2" }, null).turn.costUsd).toBe(0.8);
+    // 금액이 없으면(Codex) 손대지 않음
+    expect(perTurnCost(events, { ...turn, costUsd: undefined }, "s1")).toEqual({ turn: { ...turn, costUsd: undefined } });
+  });
+
+  it("옛 기록(cost_usd가 누적값)은 보고서가 같은 세션의 직전 값을 빼서 센다. 세션이 없는 분류 차례는 그 작업의 앞 세션으로 본다", () => {
+    const old = [
+      end("NR1", "T1", "N22", { session: "s1", cost_usd: 0.5 }),
+      end("NR2", "T1", "N23", { session: "s1", cost_usd: 0.7 }),
+      end("NR3", "T1", "N26F", { cost_usd: 1.0 }), // 분류 차례가 s1을 이어 씀
+      end("NR4", "T1", "N24", { session: "s1", cost_usd: 1.4 }),
+      end("NR5", "T1", "N27", { session: "r1", cost_usd: 0.2 }), // 새 리뷰 세션
+    ];
+    const own = ownCosts(old);
+    expect([...own.values()].map((x) => Math.round(x * 100) / 100)).toEqual([0.5, 0.2, 0.3, 0.4, 0.2]);
+    expect(buildReport(old, nodes).tasks[0].costUsd).toBe(1.6);
+    // 새 기록과 섞여도 새 기록은 그대로
+    const mixed = [...old, end("NR6", "T1", "N25", { session: "s1", cost_usd: 0.1, session_cost: { session: "s1", usd: 1.5 } })];
+    expect(ownCosts(mixed).get("NR6")).toBe(0.1);
   });
 });
