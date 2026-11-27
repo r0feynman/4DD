@@ -56,6 +56,58 @@ N03:
   gate:
     checks: [trace_scenarios]
 
+# ---------------------------------------------------------------- Stage 0 화면 기능의 디자인 (조각 3)
+# 디자인 세션(session: design)이 Figma에 그리고, 리뷰 세션(L1)이 확인한다. 백엔드 기능은 applies_to로 건너뛴다.
+
+N00F:
+  name: 디자인 시스템 준비 (프로젝트당 1회)
+  stage: 0
+  method: figma
+  kind: work
+  actor: worker
+  applies_to: [mobile, web]
+  once: project                 # 처음 화면 기능에서 한 번. 이미 통과했으면 건너뜀
+  session: design
+  figma: write
+  instruction: instructions/N00F.md
+  reads: [story, spec, design_system, src_map, last_gate, hint]
+  writes: ["design/tokens.json", "design/code-connect.json", "mobile/theme.ts", "mobile/ui/**", "mobile/assets/fonts/**", "mobile/package.json", "mobile/package-lock.json", "mobile/App.tsx"]
+  gate:
+    checks: [tokens_match, code_connect_complete]
+    review: instructions/N00F.review.md   # 리뷰 세션(L1): Figma 변수·컴포넌트와 파일이 같은지
+
+N03W:
+  name: 시나리오별 와이어프레임
+  stage: 0
+  method: figma
+  kind: work
+  actor: worker
+  applies_to: [mobile, web]
+  session: design
+  figma: write
+  instruction: instructions/N03W.md
+  reads: [story, spec, scenarios, states, design_system, last_gate, hint]
+  writes: ["specs/{feature}/states.md"]
+  gate:
+    checks: [states_complete]
+    review: instructions/N03W.review.md   # 리뷰 세션(L1): 빠진 상태가 없는지
+
+N03F:
+  name: 시나리오별 화면 완성
+  stage: 0
+  method: figma
+  kind: work
+  actor: worker
+  applies_to: [mobile, web]
+  session: design
+  figma: write
+  instruction: instructions/N03F.md
+  reads: [spec, scenarios, states, design_system, last_gate, hint]
+  writes: ["specs/{feature}/*.feature"]   # 시나리오 위의 「# figma: <node-id>」 줄만 (관문이 다른 변경을 막음)
+  gate:
+    checks: [frames_complete]
+    review: instructions/N03F.review.md   # 리뷰 세션(L1): 시나리오와 화면이 맞는지, 디자인 시스템만 썼는지
+
 N04:
   name: 스펙과 시나리오 리뷰 및 승인
   stage: 0
@@ -67,6 +119,10 @@ N04:
   on_fail:
     - when: [spec_ambiguous, spec_missing_state]
       goto: N02                   # 그다음은 파일 순서대로 N03 → N04 (PO의 말이 두 차례의 힌트)
+    - when: design_missing_state
+      goto: N03W                  # 화면 기능: 빠진 상태 → 와이어프레임부터 (조각 3)
+    - when: design_wrong
+      goto: N03F                  # 화면 기능: 화면만 고침 (조각 3)
 
 # ---------------------------------------------------------------- Stage 1 스프린트 플래닝
 
@@ -153,9 +209,10 @@ N22:
   actor: worker
   instruction: instructions/N22.md
   reads: [task, requirements, scenarios, design, last_gate, hint]
-  writes: ["tests/acceptance/**"]
+  writes: ["tests/acceptance/**", "tests/e2e/**"]   # 화면 기능은 플랫폼별 플로우 (조각 3)
   gate:
     run: "{commands.run_files} {task.scenario_files}"
+    platform_run: ["{e2e.build}", "{e2e.run_files} {task.scenario_files}"]   # 화면 기능: 플랫폼마다 앱을 올리고 플로우를 돌림 (조각 3)
     expect: fail
     reentry: any          # 구현이 이미 있는 작업으로 돌아오면 실패하지 않아도 됨
     already_met: N26      # 앞 작업의 구현으로 이미 통과하면 N23~N25를 건너뜀 (N27 리뷰가 테스트를 확인, 2026-11-25 오너 결정)
@@ -184,7 +241,7 @@ N24:
   actor: worker
   instruction: instructions/N24.md
   reads: [task, requirements, scenarios, design, last_gate, hint]
-  writes: ["src/**"]
+  writes: ["src/**", "mobile/App.tsx", "mobile/screens/**", "mobile/lib/**", "mobile/package.json", "mobile/package-lock.json"]   # 앱 코드는 mobile/의 화면·로직만. 디자인 시스템(theme.ts, ui/)은 고치지 않음 (조각 3, G10)
   gate:
     run: "{commands.unit}"
     expect: pass
@@ -197,7 +254,7 @@ N25:
   actor: worker
   instruction: instructions/N25.md
   reads: [task, design, last_gate, hint]
-  writes: ["src/**"]
+  writes: ["src/**", "mobile/App.tsx", "mobile/screens/**", "mobile/lib/**", "mobile/package.json", "mobile/package-lock.json"]   # 앱 코드는 mobile/의 화면·로직만. 디자인 시스템(theme.ts, ui/)은 고치지 않음 (조각 3, G10)
   gate:
     run: "{commands.unit}"
     expect: pass
@@ -211,6 +268,7 @@ N26:
   actor: harness
   gate:
     run: "{commands.run_files} {task.scenario_files}"
+    platform_run: ["{e2e.build}", "{e2e.run_files} {task.scenario_files}"]   # 화면 기능 (조각 3)
     expect: pass
     flaky_rerun: true
   on_fail:
@@ -251,6 +309,7 @@ N28:
   actor: harness
   gate:
     run: ["{commands.unit}", "{commands.acceptance}"]
+    platform_run: ["{e2e.build}", "{e2e.run_files} {platform.all_files}"]   # 화면 기능이면 그 플랫폼의 플로우 전체도 (조각 3)
     expect: pass
     checks: [tdd_order, test_count_kept, no_new_skips, locked_unchanged]
   on_fail:

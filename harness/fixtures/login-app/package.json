@@ -8,7 +8,11 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:acceptance": "vitest run tests/acceptance",
-    "server": "tsx src/server.ts"
+    "server": "tsx src/server.ts",
+    "build:android": "node scripts/build-android.mjs",
+    "e2e:android": "node scripts/e2e-android.mjs",
+    "build:web": "node scripts/build-web.mjs",
+    "e2e:web": "playwright test"
   },
   "dependencies": {
     "fastify": "^5.12.8",

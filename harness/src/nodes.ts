@@ -32,11 +32,15 @@ export const CONTEXT_ITEMS = [
   "task", "requirements", "scenarios", "design", "last_gate", "hint", "diff",
   // 조각 2 (Stage 0·1)
   "story", "spec", "other_specs", "other_designs", "src_map", "ids", "sprint", "tasks", "review_results",
+  // 조각 3 (화면 기능)
+  "states", "design_system",
 ] as const;
 export const GATE_CHECKS = [
   "scenario_files_exist", "new_tests", "test_count_kept", "tdd_order", "no_new_skips", "locked_unchanged",
   // 조각 2 (Stage 0·1)
   "spec_sections", "trace_scenarios", "trace_full", "design_sections", "sprint_goal", "backlog_ids", "packet_unchanged", "requirements_kept",
+  // 조각 3 (화면 기능)
+  "tokens_match", "code_connect_complete", "states_complete", "frames_complete",
 ] as const;
 /** 검토 페이지에 넣을 수 있는 것 (조각 2) */
 export const REVIEW_ITEMS = ["story", "spec", "scenarios", "sprint", "design", "tasks", "review_results"] as const;
@@ -74,6 +78,11 @@ const GateSchema = z
     /** expect: fail인데 명령이 이미 통과하고 다른 검사도 통과하면 「이미 충족」으로 보고 이 노드로 간다 (앞 작업이 이미 구현한 경우) */
     already_met: NodeId.optional(),
     checks: z.array(z.enum(GATE_CHECKS)).optional(),
+    /**
+     * 화면 기능의 작업이면 run 대신(시나리오 파일을 받는 명령) 플랫폼마다 돌리는 명령 (조각 3).
+     * {e2e.build}, {e2e.run_files}는 그 플랫폼의 commands.e2e, {task.scenario_files}는 그 플랫폼의 플로우 파일, {platform.all_files}는 그 플랫폼의 모든 플로우
+     */
+    platform_run: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
     /** 기계 검사를 통과한 뒤 리뷰 세션(L1)이 판정한다. 값은 리뷰 지시문 경로 (조각 2: N13, N14) */
     review: z.string().min(1).optional(),
   })
@@ -94,8 +103,15 @@ const NodeSchema = z.strictObject({
   kind: z.enum(["work", "decision"]),
   actor: z.enum(["harness", "worker", "reviewer", "human"]),
   applies_to: z.array(z.enum(WORK_TYPES)).min(1).default([...WORK_TYPES]),
-  /** 작업 세션을 나누는 단위. task: 작업마다 하나 (Stage 2) · stage: 기능의 스테이지마다 하나 (Stage 0·1). 없으면 Stage 2는 task, 그 앞은 stage */
-  session: z.enum(["task", "stage"]).optional(),
+  /**
+   * 작업 세션을 나누는 단위. task: 작업마다 하나 (Stage 2) · stage: 기능의 스테이지마다 하나 (Stage 0·1)
+   * · design: 기능의 디자인 노드(N00F·N03W·N03F)끼리 하나, 스테이지 세션과 따로 (조각 3). 없으면 Stage 2는 task, 그 앞은 stage
+   */
+  session: z.enum(["task", "stage", "design"]).optional(),
+  /** 노드가 쓸 수 있는 Figma 도구 (조각 3): write는 그리기까지, read는 읽기만. 없으면 Figma를 열지 않음 */
+  figma: z.enum(["write", "read"]).optional(),
+  /** project: 프로젝트에 한 번만 도는 노드 (N00F). 이미 통과했으면 건너뜀 */
+  once: z.enum(["project"]).optional(),
   instruction: z.string().min(1).optional(),
   reads: z.array(z.enum(CONTEXT_ITEMS)).default([]),
   writes: z.array(z.string().min(1)).default([]),
@@ -264,14 +280,19 @@ export function getNode(set: NodeSet, id: string): NodeDef {
 }
 
 /** 통과한 뒤 갈 노드. next가 있으면 그것, 없으면 파일 순서에서 이 작업 유형에 켜지는 다음 노드. 끝이면 null. */
-export function nextNode(set: NodeSet, id: string, workType: WorkType): string | null {
+export function nextNode(set: NodeSet, id: string, workType: WorkType, skip?: (node: string) => boolean): string | null {
   const n = getNode(set, id);
   if (n.next) return n.next;
   const i = set.order.indexOf(id);
   for (const candidate of set.order.slice(i + 1)) {
-    if (set.nodes[candidate].applies_to.includes(workType)) return candidate;
+    if (set.nodes[candidate].applies_to.includes(workType) && !skip?.(candidate)) return candidate;
   }
   return null;
+}
+
+/** once: project인 노드(N00F)가 이 프로젝트에서 이미 통과했는가 (조각 3). nextNode의 skip으로 쓴다 */
+export function onceDone(set: NodeSet, events: readonly { type: string; node?: string; result?: string }[]): (node: string) => boolean {
+  return (node) => set.nodes[node]?.once === "project" && events.some((e) => e.type === "node_end" && e.node === node && e.result === "pass");
 }
 
 export interface Route {
@@ -316,7 +337,7 @@ export function goesBack(set: NodeSet, id: string, r: Route | null): boolean {
 }
 
 /** 작업 세션을 나누는 단위 */
-export function sessionScope(n: NodeDef): "task" | "stage" {
+export function sessionScope(n: NodeDef): "task" | "stage" | "design" {
   return n.session ?? (n.stage >= 2 ? "task" : "stage");
 }
 

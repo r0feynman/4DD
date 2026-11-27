@@ -8,10 +8,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import type { Config } from "./config.ts";
 import { appendEvent, DIR, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
+import { checkCodeConnect, checkFrames, checkStates, checkTokens } from "./design.ts";
 import { changedFiles } from "./git.ts";
 import { baselineDiff } from "./lock.ts";
 import { getNode, GATE_CHECKS, type Cause, type NodeSet } from "./nodes.ts";
-import { DESIGN_SECTIONS, featureIds, featurePath, lastPacket, openQuestions, packetDrift, readSprint, readText, sections, SPEC_SECTIONS, SPRINT_FILE } from "./plan.ts";
+import { DESIGN_SECTIONS, E2E_DIR, E2E_EXT, e2eFile, featureIds, featureOfTask, featurePath, featurePlatforms, featureWorkType, lastPacket, openQuestions, packetDrift, readSprint, readText, sections, SPEC_SECTIONS, SPRINT_FILE, type Platform } from "./plan.ts";
 import { countAtRef, countSource, countWorktree } from "./testscan.ts";
 import { checkProject, parseSpec, scenariosForTask, type TraceMode } from "./trace.ts";
 
@@ -69,6 +70,24 @@ export interface GateOutcome {
 }
 
 /** 작업의 시나리오와 인수 테스트 파일. 파일이 아직 없으면 정해진 이름(tests/acceptance/S1.test.ts)을 준다. */
+/** 플랫폼의 모든 플로우 파일 (N28이 전체를 돌릴 때) */
+export function allE2eFiles(root: string, platform: Platform): string[] {
+  const dir = join(root, E2E_DIR[platform]);
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(E2E_EXT[platform])).sort().map((f) => `${E2E_DIR[platform]}/${f}`) : [];
+}
+
+/** 화면 기능의 작업이면 플랫폼 목록, 아니면 빈 목록 (조각 3) */
+export function taskPlatforms(root: string, config: Config, task: string | null): Platform[] {
+  if (!task) return [];
+  return featurePlatforms(featureWorkType(root, featureOfTask(root, task), config.work_type), config.platforms);
+}
+
+/** 작업의 시나리오가 그 플랫폼에서 쓰는 플로우 파일 */
+export function platformScenarios(root: string, task: string, platform: Platform): { ids: string[]; files: string[] } {
+  const { ids } = taskScenarios(root, task);
+  return { ids, files: ids.map((id) => e2eFile(platform, id)) };
+}
+
 export function taskScenarios(root: string, task: string): { ids: string[]; files: string[] } {
   const trace = checkProject(root).find((t) => t.tasks.some((x) => x.id === task));
   if (!trace) return { ids: [], files: [] };
@@ -88,10 +107,16 @@ export function taskStartRef(events: LedgerEvent[], task: string | null): string
   return hit && hit.type === "commit" ? hit.sha : "HEAD";
 }
 
-function expand(template: string, config: Config, scenarioFiles: string[]): string {
+function expand(template: string, config: Config, scenarioFiles: string[], platform?: Platform, root?: string): string {
   return template
+    .replace(/\{e2e\.(build|run_files)\}/g, (_, k: "build" | "run_files") => {
+      const v = platform ? config.commands.e2e?.[platform]?.[k] : undefined;
+      if (!v) throw new Error(`4dd.config.yaml에 commands.e2e.${platform ?? "<플랫폼>"}.${k}가 없습니다`);
+      return v;
+    })
+    .replace(/\{platform\.all_files\}/g, () => (platform && root ? allE2eFiles(root, platform).join(" ") : ""))
     .replace(/\{commands\.(\w+)\}/g, (_, k: string) => {
-      const cmds = config.commands as Record<string, string | undefined>;
+      const cmds = config.commands as unknown as Record<string, string | undefined>;
       // run_files가 없으면 acceptance로 대신한다 (그러면 인수 테스트 전체가 돌 수 있다)
       const v = cmds[k] ?? (k === "run_files" ? cmds.acceptance : undefined);
       if (!v) throw new Error(`4dd.config.yaml에 commands.${k}가 없습니다`);
@@ -123,7 +148,7 @@ function runCommand(root: string, command: string, timeoutMs: number): { exit: n
   return { exit, output: `${r.stdout ?? ""}${r.stderr ?? ""}`, timedOut };
 }
 
-function record(ctx: GateContext, command: string, exit: number, result: "pass" | "fail", flakyRerun: boolean, output: string): GateRunResult {
+function record(ctx: GateContext, command: string, exit: number, result: "pass" | "fail", flakyRerun: boolean, output: string, platform?: Platform): GateRunResult {
   const { events } = readEvents(ctx.root);
   const id = nextId(events, "GR");
   mkdirSync(join(ctx.root, GATE_DIR), { recursive: true });
@@ -140,6 +165,7 @@ function record(ctx: GateContext, command: string, exit: number, result: "pass" 
     exit,
     result,
     ...(flakyRerun ? { flaky_rerun: true } : {}),
+    ...(platform ? { platform } : {}),
     ...(tests ? { tests } : {}),
   });
   return { id, command, exit, result, flakyRerun, log };
@@ -160,13 +186,17 @@ function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[];
   const startRef = taskStartRef(events, ctx.task);
   switch (name) {
     case "scenario_files_exist": {
-      const missing = scenarios.ids.filter((id, i) => {
-        const f = join(root, scenarios.files[i]);
-        return !existsSync(f) || countSource(readFileSync(f, "utf8")).tests === 0;
-      });
+      // Maestro 플로우(.yaml)는 단계(- …)가 하나라도 있으면, 나머지(vitest·Playwright)는 테스트가 하나라도 있으면 있다고 본다
+      const empty = (file: string, text: string) => (file.endsWith(".yaml") ? !/^\s*-\s+\S/m.test(text) : countSource(text).tests === 0);
+      const missing = scenarios.files
+        .map((file, i) => ({ file, id: scenarios.ids[i] }))
+        .filter(({ file }) => {
+          const f = join(root, file);
+          return !existsSync(f) || empty(file, readFileSync(f, "utf8"));
+        });
       return missing.length
-        ? { name, ok: false, detail: `시나리오마다 인수 테스트가 있어야 합니다. 없거나 테스트가 비어 있는 시나리오: ${missing.map((id) => `@${id} (${ACCEPTANCE_DIR}/${id}.test.ts)`).join(", ")}` }
-        : { name, ok: true, detail: `시나리오 ${scenarios.ids.length}개의 인수 테스트가 있습니다` };
+        ? { name, ok: false, detail: `시나리오마다 인수 테스트가 있어야 합니다. 없거나 테스트가 비어 있는 시나리오: ${missing.map((m) => `@${m.id} (${m.file})`).join(", ")}` }
+        : { name, ok: true, detail: `시나리오 ${new Set(scenarios.ids).size}개의 인수 테스트 ${scenarios.files.length}개가 있습니다` };
     }
     case "new_tests": {
       const before = countAtRef(root, "HEAD", "tests/unit").tests;
@@ -312,6 +342,15 @@ function planCheck(name: GateCheck, ctx: GateContext, events: LedgerEvent[]): Ga
         ? { name, ok: false, detail: `N04에서 승인한 뒤 바뀐 파일이 있습니다: ${drift.join(", ")}` }
         : { name, ok: true, detail: `승인된 스펙과 시나리오 그대로입니다 (${packet.id})` };
     }
+    // 조각 3: 디자인 산출물 (N00F, N03W, N03F)
+    case "tokens_match":
+      return { name, ...checkTokens(root) };
+    case "code_connect_complete":
+      return { name, ...checkCodeConnect(root) };
+    case "states_complete":
+      return f ? { name, ...checkStates(root, f) } : { name, ok: false, detail: "기능이 정해지지 않았습니다" };
+    case "frames_complete":
+      return f ? { name, ...checkFrames(root, f) } : { name, ok: false, detail: "기능이 정해지지 않았습니다" };
     default:
       return { name, ok: false, detail: `알 수 없는 검사입니다: ${name}` };
   }
@@ -322,10 +361,27 @@ export function runGate(ctx: GateContext): GateOutcome {
   const gate = node.gate;
   if (!gate) throw new Error(`${ctx.nodeId}에는 관문이 없습니다`);
   const timeoutMs = ctx.timeoutMs ?? GATE_TIMEOUT_MS;
-  const scenarios = ctx.task ? taskScenarios(ctx.root, ctx.task) : { ids: [], files: [] };
   const commands = gate.run === undefined ? [] : Array.isArray(gate.run) ? gate.run : [gate.run];
+  // 화면 기능의 작업이면 시나리오 파일을 받는 명령 대신 플랫폼마다 platform_run을 돌린다 (조각 3)
+  const platforms = gate.platform_run ? taskPlatforms(ctx.root, ctx.config, ctx.task) : [];
+  const base = ctx.task ? taskScenarios(ctx.root, ctx.task) : { ids: [], files: [] };
+  const perPlatform = platforms.map((p) => ({ platform: p, ...platformScenarios(ctx.root, ctx.task!, p) }));
+  // 검사(시나리오마다 테스트가 있음)가 보는 목록: 화면 기능이면 플랫폼마다의 플로우 파일
+  const scenarios = platforms.length ? { ids: perPlatform.flatMap((x) => x.ids), files: perPlatform.flatMap((x) => x.files) } : base;
+  const platformRun = gate.platform_run === undefined ? [] : Array.isArray(gate.platform_run) ? gate.platform_run : [gate.platform_run];
+  const planned: { template: string; files: string[]; platform?: Platform }[] = platforms.length
+    ? [
+        ...commands.filter((c) => !c.includes("{task.scenario_files}")).map((template) => ({ template, files: [] as string[] })),
+        // 빌드 명령이 없는 플랫폼(예: 테스트가 서버와 웹을 스스로 띄움)은 빌드 단계를 건너뛴다
+        ...perPlatform.flatMap((x) =>
+          platformRun
+            .filter((template) => !template.includes("{e2e.build}") || !!ctx.config.commands.e2e?.[x.platform]?.build)
+            .map((template) => ({ template, files: x.files, platform: x.platform })),
+        ),
+      ]
+    : commands.map((template) => ({ template, files: base.files }));
 
-  if (commands.some((c) => c.includes("{task.scenario_files}")) && scenarios.files.length === 0) {
+  if (planned.some((c) => c.template.includes("{task.scenario_files}")) && base.ids.length === 0) {
     return { node: ctx.nodeId, passed: true, runs: [], checks: [], summary: `${ctx.nodeId}: 이 작업에서 통과시킬 시나리오가 없어 관문을 건너뜁니다` };
   }
 
@@ -338,21 +394,29 @@ export function runGate(ctx: GateContext): GateOutcome {
       readEvents(ctx.root).events.some((e) => e.type === "node_end" && e.task === ctx.task && e.node === "N24" && e.result === "pass"));
   const runs: GateRunResult[] = [];
   let cause: Cause | undefined;
-  for (const template of commands) {
-    const command = expand(template, ctx.config, scenarios.files);
+  const brokenBuild = new Set<Platform>();
+  for (const step of planned) {
+    if (step.platform && brokenBuild.has(step.platform)) continue;
+    const command = expand(step.template, ctx.config, step.files, step.platform, ctx.root);
+    // 앱 빌드({e2e.build})는 기대(실패해야 함)와 상관없이 성공해야 한다. 빌드가 깨지면 그 플랫폼의 테스트를 돌리지 않는다
+    const isBuild = step.template.includes("{e2e.build}");
     let r = runCommand(ctx.root, command, timeoutMs);
     const envProblem = r.timedOut || r.exit === 126 || r.exit === 127;
-    const met = (exit: number) => reentry || (gate.expect === "pass" ? exit === 0 : exit !== 0);
+    const met = (exit: number) => (isBuild ? exit === 0 : reentry || (gate.expect === "pass" ? exit === 0 : exit !== 0));
     if (envProblem) {
-      runs.push(record(ctx, command, r.exit, "fail", false, r.output));
+      runs.push(record(ctx, command, r.exit, "fail", false, r.output, step.platform));
       cause = "env";
       continue;
     }
-    runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", false, r.output));
+    runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", false, r.output, step.platform));
+    if (isBuild && r.exit !== 0) {
+      if (step.platform) brokenBuild.add(step.platform);
+      continue;
+    }
     if (!met(r.exit) && gate.flaky_rerun && gate.expect === "pass") {
       // test_flaky: 한 번 다시 돌려 결과가 바뀌면 테스트가 불안정한 것이다. 이 재실행은 횟수에 넣지 않는다.
       r = runCommand(ctx.root, command, timeoutMs);
-      runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", true, r.output));
+      runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", true, r.output, step.platform));
       if (met(r.exit)) cause = "test_flaky";
     }
   }

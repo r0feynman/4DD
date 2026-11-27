@@ -266,6 +266,19 @@ function planWork(root: string, node: NodeDef, feature: string, task: string | n
     const d = readText(root, fp("design.md"));
     if (d) work.push(`### 설계 (${fp("design.md")})\n${d.trim()}`);
   }
+  if (reads.has("states")) {
+    const s = readText(root, fp("states.md"));
+    work.push(s ? `### 화면 상태 (${fp("states.md")})\n${s.trim()}` : `### 화면 상태\n${fp("states.md")}이 아직 없습니다.`);
+  }
+  if (reads.has("design_system")) {
+    const tokens = readText(root, "design/tokens.json");
+    const cc = readText(root, "design/code-connect.json");
+    work.push(
+      tokens
+        ? `### 디자인 시스템 (design/tokens.json, design/code-connect.json)\n\`\`\`json\n${tokens.trim()}\n\`\`\`\n\`\`\`json\n${(cc ?? "[]").trim()}\n\`\`\``
+        : "### 디자인 시스템\n아직 없습니다 (N00F가 처음 화면 기능에서 만듭니다).",
+    );
+  }
   if (reads.has("other_designs")) {
     for (const f of others) {
       const d = readText(root, featurePath(f, "design.md"));
@@ -273,7 +286,8 @@ function planWork(root: string, node: NodeDef, feature: string, task: string | n
     }
   }
   if (reads.has("src_map")) {
-    const files = git(root, ["ls-files", "src", "tests"]).split("\n").filter((f) => f && !f.endsWith(".gitkeep"));
+    // 화면 기능의 앱 코드(mobile/)와 디자인 시스템(design/)도 함께 (조각 3)
+    const files = git(root, ["ls-files", "src", "tests", "mobile", "design"]).split("\n").filter((f) => f && !f.endsWith(".gitkeep") && !/^mobile\/assets\//.test(f) && !f.endsWith("package-lock.json"));
     const exportsOf = (f: string) =>
       (readText(root, f) ?? "")
         .split("\n")
@@ -281,7 +295,7 @@ function planWork(root: string, node: NodeDef, feature: string, task: string | n
         .map((l) => `    ${l.replace(/\s*\{\s*$/, "").slice(0, 140)}`)
         .slice(0, 12)
         .join("\n");
-    const lines = files.map((f) => (f.startsWith("src/") ? `- ${f}\n${exportsOf(f)}`.trimEnd() : `- ${f}`));
+    const lines = files.map((f) => (f.startsWith("src/") || /^mobile\/.*\.tsx?$/.test(f) ? `- ${f}\n${exportsOf(f)}`.trimEnd() : `- ${f}`));
     work.push(`### 소스 파일 목록 (src/의 export 줄 포함)\n${lines.join("\n") || "(아직 없음)"}`);
   }
   if (reads.has("tasks")) {

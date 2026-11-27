@@ -18,6 +18,13 @@ const ConfigSchema = z.strictObject({
     run_files: z.string().min(1).optional(),
     build: z.string().min(1).optional(),
     visual: z.string().min(1).optional(),
+    /** 화면 기능의 플랫폼별 명령 (조각 3): build는 앱을 빌드해 기기에 올림, run_files는 플로우·테스트 파일을 받아 돌림 */
+    e2e: z
+      .strictObject({
+        android: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1) }).optional(),
+        web: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1) }).optional(),
+      })
+      .optional(),
   }),
   locked: z.array(z.string().min(1)).default([]),
   /** 가상 기기 (조각 3, 모바일). avd 이름, SDK 경로(없으면 ANDROID_HOME, ~/Android/Sdk), 부팅 기다리는 시간 */

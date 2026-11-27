@@ -121,6 +121,41 @@ export function packetDrift(root: string, packet: PacketEvent): string[] {
   return packet.files.filter((f) => now.get(f.path) !== f.hash).map((f) => f.path);
 }
 
+// ---------------------------------------------------------------- 기능마다 작업 유형 (조각 3)
+
+/** 스토리로 정하는 기능의 작업 유형. 「기능 단위」(feature)는 프로젝트 유형이라 기능에는 쓰지 않는다 */
+export const STORY_TYPES = ["mobile", "web", "backend"] as const;
+export type StoryType = (typeof STORY_TYPES)[number];
+/** 화면 기능의 인수 테스트를 돌리는 플랫폼 */
+export const PLATFORMS = ["android", "web"] as const;
+export type Platform = (typeof PLATFORMS)[number];
+const STORY_TYPE_LINE = /^작업 유형:\s*(mobile|web|backend)\s*$/m;
+
+/**
+ * 기능의 작업 유형: story.md 머리의 「작업 유형:」 줄. 없으면 프로젝트의 work_type,
+ * 프로젝트가 「기능 단위」(feature)면 backend (조각 1·2의 기능은 스토리에 유형이 없다).
+ */
+export function featureWorkType(root: string, feature: string | null, workType: string): StoryType {
+  const story = feature ? readText(root, featurePath(feature, "story.md")) : null;
+  const m = story ? STORY_TYPE_LINE.exec(story) : null;
+  if (m) return m[1] as StoryType;
+  return (STORY_TYPES as readonly string[]).includes(workType) ? (workType as StoryType) : "backend";
+}
+
+/** 화면 기능이 인수 테스트를 돌릴 플랫폼: web 기능은 웹만, mobile 기능은 설정의 platforms 전부(같은 앱을 Expo 웹으로도) */
+export function featurePlatforms(type: StoryType, platforms: readonly string[] | undefined): Platform[] {
+  if (type === "backend") return [];
+  const conf = (platforms ?? ["android"]).filter((p): p is Platform => (PLATFORMS as readonly string[]).includes(p));
+  return type === "web" ? (conf.includes("web") ? ["web"] : []) : conf;
+}
+
+/** 플랫폼별 인수 테스트 파일: Android는 Maestro 플로우, 웹은 Playwright */
+export const E2E_DIR: Record<Platform, string> = { android: "tests/e2e/android", web: "tests/e2e/web" };
+export const E2E_EXT: Record<Platform, string> = { android: ".yaml", web: ".spec.ts" };
+export function e2eFile(platform: Platform, scenario: string): string {
+  return `${E2E_DIR[platform]}/${scenario}${E2E_EXT[platform]}`;
+}
+
 /** 작업이 속한 기능 폴더 이름 */
 export function featureOfTask(root: string, task: string): string | null {
   const t = checkProject(root).find((x) => x.tasks.some((k) => k.id === task));

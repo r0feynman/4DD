@@ -9,16 +9,16 @@ describe("하네스의 nodes.yaml", () => {
 
   it("Stage 0·1(조각 2)과 Stage 2의 노드를 파일 순서대로 읽는다", () => {
     expect(set.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(set.order).toEqual(["N01", "N02", "N03", "N04", "N11", "N12", "N13", "N14", "N15", "N21", "N22", "N23", "N24", "N25", "N26", "N27", "N28", "N29"]);
+    expect(set.order).toEqual(["N01", "N02", "N03", "N00F", "N03W", "N03F", "N04", "N11", "N12", "N13", "N14", "N15", "N21", "N22", "N23", "N24", "N25", "N26", "N27", "N28", "N29"]);
   });
 
   it("노드마다 맡는 쪽과 고칠 수 있는 경로가 명세 표와 같다", () => {
     const pick = (id: string) => [set.nodes[id].actor, set.nodes[id].writes];
     expect(pick("N21")).toEqual(["harness", [".4dd/**"]]);
-    expect(pick("N22")).toEqual(["worker", ["tests/acceptance/**"]]);
+    expect(pick("N22")).toEqual(["worker", ["tests/acceptance/**", "tests/e2e/**"]]);
     expect(pick("N23")).toEqual(["worker", ["tests/unit/**"]]);
-    expect(pick("N24")).toEqual(["worker", ["src/**"]]);
-    expect(pick("N25")).toEqual(["worker", ["src/**"]]);
+    expect(pick("N24")).toEqual(["worker", ["src/**", "mobile/App.tsx", "mobile/screens/**", "mobile/lib/**", "mobile/package.json", "mobile/package-lock.json"]]);
+    expect(pick("N25")).toEqual(["worker", ["src/**", "mobile/App.tsx", "mobile/screens/**", "mobile/lib/**", "mobile/package.json", "mobile/package-lock.json"]]);
     expect(pick("N26")).toEqual(["harness", []]);
     expect(pick("N27")).toEqual(["reviewer", []]);
     expect(pick("N28")).toEqual(["harness", []]);

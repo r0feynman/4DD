@@ -30,11 +30,16 @@ export interface SessionNodeOptions {
 
 /** 이어 쓸 작업 세션: 작업마다(task) 또는 기능의 스테이지마다(stage, 조각 2) */
 export function pickSession(events: LedgerEvent[], nodes: NodeSet, node: NodeDef, task: string | null, feature: string | null, state: State): string | null {
-  if (sessionScope(node) === "task") return task && state.task === task ? state.session : null;
+  const scope = sessionScope(node);
+  if (scope === "task") return task && state.task === task ? state.session : null;
+  // stage: 같은 스테이지의 작업 세션 노드끼리 · design: 디자인 노드(N00F·N03W·N03F)끼리 (조각 3: 스테이지 세션과 따로)
   const hit = events
     .filter((e): e is Extract<LedgerEvent, { type: "node_end" }> => e.type === "node_end" && !!e.session)
     .filter((e) => e.task === task && (task !== null || e.feature === feature))
-    .filter((e) => nodes.nodes[e.node]?.actor === "worker" && nodes.nodes[e.node]?.stage === node.stage)
+    .filter((e) => {
+      const n = nodes.nodes[e.node];
+      return n?.actor === "worker" && n.stage === node.stage && sessionScope(n) === scope;
+    })
     .at(-1);
   return hit?.session ?? null;
 }

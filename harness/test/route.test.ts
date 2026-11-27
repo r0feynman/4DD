@@ -123,3 +123,30 @@ describe("하네스가 정한 갈 곳", () => {
     expect(next(ev)).toEqual({ kind: "node", node: "N22" });
   });
 });
+
+describe("화면 기능의 Stage 0 (조각 3)", () => {
+  let k = 1000;
+  const planEnd = (node: string, feature = "login-screen", extra: Record<string, unknown> = {}): LedgerEvent[] => {
+    k++;
+    return [
+      { ...base, type: "node_start", id: `NR${k}`, node, task: null, feature, session: null } as LedgerEvent,
+      { ...base, type: "node_end", id: `NR${k}`, node, task: null, feature, result: "pass", loaded: [], minutes: 0, ...extra } as LedgerEvent,
+    ];
+  };
+  const go = (events: LedgerEvent[], type: "mobile" | "backend") => decideNext(events, nodes, type, rebuildState(events));
+
+  it("화면 기능은 N03 뒤 디자인 시스템(처음 한 번) → 와이어프레임 → 완성 화면 → N04, 백엔드는 바로 N04", () => {
+    const n03 = [...planEnd("N01"), ...planEnd("N02"), ...planEnd("N03")];
+    expect(go(n03, "backend")).toEqual({ kind: "node", node: "N04" });
+    expect(go(n03, "mobile")).toEqual({ kind: "node", node: "N00F" });
+    expect(go([...n03, ...planEnd("N00F")], "mobile")).toEqual({ kind: "node", node: "N03W" });
+    expect(go([...n03, ...planEnd("N00F"), ...planEnd("N03W")], "mobile")).toEqual({ kind: "node", node: "N03F" });
+    expect(go([...n03, ...planEnd("N00F"), ...planEnd("N03W"), ...planEnd("N03F")], "mobile")).toEqual({ kind: "node", node: "N04" });
+  });
+
+  it("디자인 시스템은 프로젝트에 한 번: 앞 기능에서 통과했으면 다음 화면 기능은 와이어프레임으로", () => {
+    const first = [...planEnd("N00F", "login-screen")];
+    const second = [...first, ...planEnd("N01", "signup-screen"), ...planEnd("N02", "signup-screen"), ...planEnd("N03", "signup-screen")];
+    expect(go(second, "mobile")).toEqual({ kind: "node", node: "N03W" });
+  });
+});

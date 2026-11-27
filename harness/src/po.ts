@@ -15,7 +15,7 @@ import { addLearningCandidate } from "./human.ts";
 import { appendEvent, DIR, FEATURE_NAME, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
 import { computeBaseline, writeBaseline } from "./lock.ts";
 import { allowedCauses, getNode, loadNodes, type Cause, type NodeSet } from "./nodes.ts";
-import { combinedHash, featureIds, featureOfTask, featurePath, hashFiles, openQuestions, readText, reviewFilesFor, sha256 } from "./plan.ts";
+import { combinedHash, featureIds, featureOfTask, featurePath, hashFiles, openQuestions, readText, reviewFilesFor, sha256, type StoryType } from "./plan.ts";
 import { featureTitle, renderReviewPage } from "./review.ts";
 import { loadState, type State } from "./state.ts";
 import { parseTasks } from "./trace.ts";
@@ -33,6 +33,8 @@ export interface Speaker {
   /** po: PO의 말을 창구가 옮김 · dev: 개발자가 직접 · script: 각본 PO */
   by?: "po" | "dev" | "script";
   channel?: "chat" | "terminal";
+  /** 기능의 작업 유형 (조각 3, 4dd story --type). 프로젝트가 「기능 단위」일 때 씀 */
+  type?: StoryType;
 }
 
 /** 하네스가 띄운 세션에서는 사람 명령을 쓰지 않는다 (승인을 지키는 겹: 사람 명령의 세션 검사) */
@@ -84,8 +86,12 @@ export function tellStory(root: string, feature: string, text: string, who: Spea
   const { events } = readEvents(root);
   const id = nextId(events, "HU");
   const runId = nextId(events, "NR");
+  // 작업 유형: 프로젝트가 「기능 단위」면 기능마다 정해 story.md 머리에 남긴다(없으면 backend). 아니면 프로젝트 유형과 같아야 함
+  const projectType = loadConfig(root).work_type;
+  if (who.type && projectType !== "feature" && who.type !== projectType) throw new PoError(`이 프로젝트의 작업 유형은 ${projectType}입니다. 기능마다 유형을 정하려면 4dd.config.yaml의 work_type이 feature여야 합니다`);
+  const typeLine = projectType === "feature" ? `작업 유형: ${who.type ?? "backend"}\n\n` : "";
   mkdirSync(join(root, "specs", feature), { recursive: true });
-  writeFileSync(join(root, featurePath(feature, "story.md")), `# 스토리: ${feature} (${id})\n\n${text.trim()}\n`);
+  writeFileSync(join(root, featurePath(feature, "story.md")), `# 스토리: ${feature} (${id})\n\n${typeLine}${text.trim()}\n`);
   const hash = saveText(root, id, text);
   appendEvent(root, H, { type: "node_start", id: runId, node: "N01", task: null, feature, session: null });
   appendEvent(root, H, { type: "node_end", id: runId, node: "N01", task: null, feature, result: "pass", minutes: 0 });

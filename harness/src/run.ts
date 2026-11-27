@@ -15,7 +15,7 @@ import { appendEvent, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
 import { baselineDiff, computeBaseline, writeBaseline } from "./lock.ts";
 import { budgetFor, getNode, loadNodes, resolveWrites, type Cause, type NodeSet } from "./nodes.ts";
 import { matchesAny } from "./glob.ts";
-import { featureOfTask, readSprint } from "./plan.ts";
+import { featureOfTask, featureWorkType, readSprint } from "./plan.ts";
 import { decideNext } from "./route.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, type FeatureTrace, type Task } from "./trace.ts";
@@ -227,7 +227,8 @@ export function runLoop(opts: RunOptions): RunOutcome {
   for (let i = 0; i < maxSteps; i++) {
     state = loadState(root).state;
     const { events } = readEvents(root);
-    const step = decideNext(events, nodes, config.work_type, state);
+    // 일감(Stage 0·1의 기능, Stage 2의 작업)이 속한 기능의 작업 유형으로 노드를 거른다 (조각 3: 기능마다 작업 유형)
+    const step = decideNext(events, nodes, featureWorkType(root, unitFeature(root, state), config.work_type), state);
     const task = state.task;
     const feature = unitFeature(root, state);
 

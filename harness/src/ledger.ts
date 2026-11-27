@@ -75,6 +75,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     result: z.enum(["pass", "fail"]),
     flaky_rerun: z.boolean().optional(),
     tests: z.strictObject({ total: z.number().int().min(0), failed: z.number().int().min(0), skipped: z.number().int().min(0).optional() }).optional(),
+    /** 화면 기능의 인수 테스트를 돌린 플랫폼 (조각 3) */
+    platform: z.enum(["android", "web"]).optional(),
   }),
   z.strictObject({
     type: z.literal("hook_run"),
