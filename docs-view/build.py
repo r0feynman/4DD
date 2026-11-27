@@ -1038,6 +1038,7 @@ def load_slices():
         "intro": next((p.strip() for p in head.split("\n\n") if p.strip() and not p.lstrip().startswith(("|", "-"))), ""),
         "notes": bold_bullets(head),
         "outside": bold_bullets(section(hd, "### 조각에 넣지 않은 것")),
+        "must": bold_bullets(section(hd, "### 나중에 반드시 할 일")),
         "finish": bold_bullets(section(hd, "### 조각을 모두 끝내면")),
         "gaps": gaps,
         "by_gap": by_gap,
@@ -1581,6 +1582,10 @@ def page_slices(ctx):
         f'<div class="card top c-plain un"><span class="k">조각 밖 · 보류</span><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
         for k, v in sl["outside"]
     )
+    must = "".join(
+        f'<div class="card top c-human"><span class="k">나중에 반드시</span><span class="t">{inline(re.sub(r" [(]20[0-9-]+[^)]*[)]$", "", k))}</span><span class="d">{chipify(ctx, v)}</span></div>'
+        for k, v in sl["must"]
+    )
     finish = "".join(
         f'<div class="card top c-plain"><span class="t">{inline(k)}</span><span class="d">{chipify(ctx, v)}</span></div>'
         for k, v in sl["finish"]
@@ -1632,6 +1637,7 @@ def page_slices(ctx):
   <div class="cards onto-cards">{finish}</div>
   <div class="cards onto-cards">{outside}</div>
 </section>
+{f'<section><h2>나중에 반드시 할 일</h2><p>지금 조각에서 하지는 않지만, 하네스를 완성하기 전에 꼭 해야 하는 일입니다.</p><div class="cards onto-cards">{must}</div></section>' if must else ""}
 <section><details class="source"><summary>원문 펼쳐 보기 · <code>docs/harness-design.md</code> 「구현 조각」</summary><div class="md">{render_md(sl["source"])}</div></details></section>
 """
     return subpage(ctx, "slices.html", "4DD 구현 조각", body)
