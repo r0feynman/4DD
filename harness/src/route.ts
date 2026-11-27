@@ -148,8 +148,13 @@ function inUnit(e: LedgerEvent, state: State): e is NodeEnd {
   return state.task ? e.task === state.task : e.task === null && !!e.feature && e.feature === state.planning;
 }
 
-export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: WorkType, state: State): Step {
-  const skip = onceDone(nodes, events);
+/**
+ * hold: 지금은 건너뛸 노드 (지휘 프로그램이 파일을 보고 정함). 조각 3: 스펙에 물을 것이 남았으면 디자인 노드를 건너뛰고
+ * N04에서 먼저 묻는다. 답을 받아 스펙이 정해진 뒤에 화면을 한 번만 그린다.
+ */
+export function decideNext(events: LedgerEvent[], nodes: NodeSet, workType: WorkType, state: State, hold: (node: string) => boolean = () => false): Step {
+  const once = onceDone(nodes, events);
+  const skip = (n: string) => once(n) || hold(n);
   const next: Next = (id) => nextNode(nodes, id, workType, skip);
   if (state.status === "waiting_human" && state.waiting) return { kind: "human", node: state.waiting.node, reason: state.waiting.reason };
   if (state.status === "stopped") return { kind: "human", node: state.node ?? "N21", reason: "stopped" };

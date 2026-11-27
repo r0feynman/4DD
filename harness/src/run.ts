@@ -15,7 +15,7 @@ import { appendEvent, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
 import { baselineDiff, computeBaseline, writeBaseline } from "./lock.ts";
 import { budgetFor, getNode, loadNodes, resolveWrites, type Cause, type NodeSet } from "./nodes.ts";
 import { matchesAny } from "./glob.ts";
-import { featureOfTask, featureWorkType, readSprint } from "./plan.ts";
+import { featureOfTask, featurePath, featureWorkType, openQuestions, readSprint, readText } from "./plan.ts";
 import { decideNext } from "./route.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, type FeatureTrace, type Task } from "./trace.ts";
@@ -228,7 +228,11 @@ export function runLoop(opts: RunOptions): RunOutcome {
     state = loadState(root).state;
     const { events } = readEvents(root);
     // 일감(Stage 0·1의 기능, Stage 2의 작업)이 속한 기능의 작업 유형으로 노드를 거른다 (조각 3: 기능마다 작업 유형)
-    const step = decideNext(events, nodes, featureWorkType(root, unitFeature(root, state), config.work_type), state);
+    // 스펙에 물을 것이 남았으면 디자인 노드(Stage 0의 Figma 노드)를 건너뛰고 N04에서 먼저 묻는다 (조각 3)
+    const unitF = unitFeature(root, state);
+    const asking = !!unitF && !state.task && openQuestions(readText(root, featurePath(unitF, "spec.md")) ?? "").length > 0;
+    const hold = (n: string) => asking && nodes.nodes[n]?.stage === 0 && nodes.nodes[n]?.method === "figma";
+    const step = decideNext(events, nodes, featureWorkType(root, unitF, config.work_type), state, hold);
     const task = state.task;
     const feature = unitFeature(root, state);
 

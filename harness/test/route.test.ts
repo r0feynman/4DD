@@ -150,3 +150,16 @@ describe("화면 기능의 Stage 0 (조각 3)", () => {
     expect(go(second, "mobile")).toEqual({ kind: "node", node: "N03W" });
   });
 });
+
+describe("물을 것이 남으면 디자인 전에 묻기 (조각 3)", () => {
+  it("hold가 디자인 노드를 막으면 N03 뒤 바로 N04", () => {
+    const base2 = { ts: "2026-11-27T00:00:00.000Z", schema_version: 1 as const, harness: "0.3.0" };
+    const ev: LedgerEvent[] = ["N01", "N02", "N03"].flatMap((node, i) => [
+      { ...base2, type: "node_start", id: `NR${900 + i}`, node, task: null, feature: "f", session: null } as LedgerEvent,
+      { ...base2, type: "node_end", id: `NR${900 + i}`, node, task: null, feature: "f", result: "pass", loaded: [], minutes: 0 } as LedgerEvent,
+    ]);
+    const design = (n: string) => nodes.nodes[n]?.method === "figma" && nodes.nodes[n]?.stage === 0;
+    expect(decideNext(ev, nodes, "mobile", rebuildState(ev), design)).toEqual({ kind: "node", node: "N04" });
+    expect(decideNext(ev, nodes, "mobile", rebuildState(ev))).toEqual({ kind: "node", node: "N00F" });
+  });
+});
