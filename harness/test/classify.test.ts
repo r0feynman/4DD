@@ -33,11 +33,13 @@ describe("실패 원인 분류", () => {
     expect(a.reqs).toHaveLength(0);
   });
 
-  it("세션에게 그 노드의 단어만 주고, 읽기 전용으로 이어 쓴 세션에서 고르게 한다", () => {
+  it("그 노드의 단어만 주고, 읽기 전용 새 세션에서 고르게 한다 (작업 세션을 이어 쓰면 캐시가 식어 비쌈)", () => {
     const a = answering({ cause: "code_bug", evidence: "잠금 시각 계산이 틀림" });
     const r = classifyFailure({ ...base, adapter: a });
     expect(r).toMatchObject({ cause: "code_bug", by: "agent", needsHuman: false, evidence: "잠금 시각 계산이 틀림" });
-    expect(a.reqs[0]).toMatchObject({ sessionId: "sess-T1", readOnly: true });
+    expect(a.reqs[0]).toMatchObject({ sessionId: null, readOnly: true });
+    expect(a.reqs[0].prompt).toContain("새로 열었습니다");
+    expect(a.reqs[0].prompt).toContain("## 이 작업\nT1 ");
     expect(a.reqs[0].jsonSchema).toEqual(classifySchema(["code_bug", "test_flaky", "spec_ambiguous", "spec_missing_state", "env"], true));
     expect(a.reqs[0].prompt).toContain("`spec_ambiguous`: 스펙이 모호해서");
   });

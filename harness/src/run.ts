@@ -151,8 +151,8 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
   const pickCause = !gate.passed && !(node.otherwise && !gate.cause) && task !== null;
   const c = pickCause ? classifyFailure({ root, nodes, nodeId, task: task!, runId, ...(gate.cause ? { machineCause: gate.cause } : {}), gateSummary: gate.summary, session, adapter }) : undefined;
   const minutes = Math.round(((Date.now() - t0) / 60_000) * 100) / 100;
-  // 분류 차례는 그 작업의 세션을 이어 쓰므로 누적 금액에서 직전 값을 뺀다
-  const priced = c?.turn ? perTurnCost(events, c.turn, session) : undefined;
+  // 분류 차례는 새 세션이므로 그 차례 금액이 그대로 몫이다
+  const priced = c?.turn ? perTurnCost(events, c.turn, null) : undefined;
   const t = priced?.turn;
   appendEvent(root, nodes.version, {
     type: "node_end",

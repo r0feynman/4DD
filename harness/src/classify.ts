@@ -1,13 +1,14 @@
 // 실패 원인 분류 (첫 구현 조각 명세 「실패 원인 분류」)
 //
 // 1. 기계가 정할 수 있으면 기계가 정한다 (관문이 test_flaky, env를 정함).
-// 2. 아니면 그 작업의 세션에게 그 노드의 on_fail에 있는 단어만 고르게 한다 (정해진 출력 형식: 원인 하나와 근거 300자 이하).
-//    세션은 읽기 전용으로 부르고, 고르지 못하면 그 노드의 첫 원인(code_bug)으로 둔다.
+// 2. 아니면 읽기 전용 새 세션에게 그 노드의 on_fail에 있는 단어만 고르게 한다 (정해진 출력 형식: 원인 하나와 근거 300자 이하).
+//    고르지 못하면 그 노드의 첫 원인(code_bug)으로 둔다.
 // 3. 사람 승인이 필요한 원인이면 멈춘다. 에이전트가 풀기 어려운 문제를 엉뚱한 원인으로 분류해 빠져나가지 못하게 하기 위해서다.
 
 import type { Adapter, TurnResult } from "./adapters.ts";
 import { checkDiff } from "./guard.ts";
 import { allowedCauses, failRoute, type Cause, type NodeSet } from "./nodes.ts";
+import { checkProject } from "./trace.ts";
 
 /** 원인 단어의 뜻 (workflow.md 「실패 원인」을 줄인 것). 분류 차례에서 에이전트에게 보여 준다. */
 export const CAUSE_MEANING: Record<Cause, string> = {
@@ -65,11 +66,13 @@ const CLASSIFY_HINT: Record<string, string> = {
   ].join("\n"),
 };
 
-export function classifyPrompt(nodeId: string, task: string, causes: Cause[], gateSummary: string): string {
+export function classifyPrompt(nodeId: string, task: string, causes: Cause[], gateSummary: string, taskLine?: string): string {
   return [
     `# 4DD 하네스 · ${nodeId} 실패 원인 분류 · 작업 ${task}`,
     "하네스의 관문이 실패했습니다. 파일은 고치지 말고, 아래 단어 가운데 원인 하나만 고르세요. 근거는 한국어로 300자 이내로 씁니다.",
     "앞 스테이지(스펙, 설계)로 가는 원인은 사람이 승인해야 진행합니다. 확실하지 않으면 code_bug를 고릅니다.",
+    "이 세션은 분류만 하려고 새로 열었습니다. 작업 세션의 기억이 없으므로, 관문 결과에 적힌 출력 파일·이미지와 필요한 코드·스펙을 Read로 봅니다.",
+    ...(taskLine ? ["", "## 이 작업", taskLine] : []),
     ...(CLASSIFY_HINT[nodeId] ? ["", "## 이 노드에서 고르는 법", CLASSIFY_HINT[nodeId]] : []),
     "",
     "## 고를 수 있는 원인",
@@ -107,7 +110,7 @@ export interface ClassifyOptions {
   /** 관문이 기계로 정한 원인 */
   machineCause?: Cause;
   gateSummary: string;
-  /** 그 작업의 세션 (없으면 에이전트 분류를 건너뛰고 기본 원인) */
+  /** 그 작업의 세션. 작업 세션이 돈 적이 없으면 에이전트 분류를 건너뛰고 기본 원인 (분류 자체는 새 세션에서 함) */
   session: string | null;
   adapter?: Adapter;
   timeoutMs?: number;
@@ -123,10 +126,13 @@ export function classifyFailure(opts: ClassifyOptions): ClassifyResult {
   if (!opts.adapter || !opts.session || causes.length <= 1) {
     return { cause: fallback, by: "harness", needsHuman: needsHuman(nodes, nodeId, fallback), evidence: "기본 원인" };
   }
+  // 새 세션으로 고른다 (2026-11-27 실제 실행): 작업 세션을 이어 쓰면 판단 노드의 긴 관문(Android 플로우) 사이에 캐시가 식고
+  // 읽기 전용 도구 목록도 달라, 쌓인 맥락 수십만 토큰을 차례마다 새로 읽었다 (분류 한 번 $1~2)
+  const t = checkProject(opts.root).flatMap((x) => x.tasks).find((x) => x.id === opts.task);
   const turn = opts.adapter.runTurn({
     root: opts.root,
-    prompt: classifyPrompt(nodeId, opts.task, causes, opts.gateSummary),
-    sessionId: opts.session,
+    prompt: classifyPrompt(nodeId, opts.task, causes, opts.gateSummary, t ? `${t.id} ${t.title} (${t.file})` : undefined),
+    sessionId: null,
     env: { FOURDD_ROOT: opts.root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: opts.runId },
     timeoutMs: opts.timeoutMs ?? nodes.defaults.turn_timeout_min * 60_000,
     readOnly: true,
