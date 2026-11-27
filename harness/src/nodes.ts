@@ -43,7 +43,7 @@ export const GATE_CHECKS = [
   "tokens_match", "code_connect_complete", "states_complete", "frames_complete",
 ] as const;
 /** 검토 페이지에 넣을 수 있는 것 (조각 2) */
-export const REVIEW_ITEMS = ["story", "spec", "scenarios", "sprint", "design", "tasks", "review_results"] as const;
+export const REVIEW_ITEMS = ["story", "spec", "scenarios", "sprint", "design", "tasks", "review_results", "states", "frames", "design_system"] as const;
 export const PACKETS = ["0-1", "1-2"] as const;
 export type Packet = (typeof PACKETS)[number];
 

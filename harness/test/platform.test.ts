@@ -12,6 +12,9 @@ import { loadNodes } from "../src/nodes.ts";
 import { featurePlatforms, featureWorkType } from "../src/plan.ts";
 import { PoError, tellStory } from "../src/po.ts";
 import { checkCodeConnect, checkFrames, checkStates, checkTokens } from "../src/design.ts";
+import { hashFiles, reviewFilesFor } from "../src/plan.ts";
+import { renderReviewPage } from "../src/review.ts";
+import type { LedgerEvent } from "../src/ledger.ts";
 import { git } from "../src/git.ts";
 import { readFileSync } from "node:fs";
 
@@ -187,5 +190,26 @@ describe("디자인 산출물 관문 (조각 3)", () => {
     put(file, text.replace("환영 화면이 보인다", "다른 화면이 보인다"));
     expect(checkFrames(root, "login-screen").detail).toContain("프레임 줄 말고 시나리오가 바뀌었습니다");
     put(file, text);
+  });
+});
+
+describe("화면 기능의 N04 검토 페이지 (조각 3)", () => {
+  it("시나리오 카드에 프레임 이미지와 상태, 처음이면 디자인 시스템을 넣고, 이미지도 검토 해시에 들어간다", () => {
+    // 앞 묶음이 states.md, design/frames/S15.png, tokens·code-connect를 만들어 두었다
+    const files = reviewFilesFor(root, "login-screen", ["story", "spec", "scenarios", "states", "frames", "design_system"]);
+    expect(files).toContain("design/frames/S15.png");
+    expect(files).toContain("specs/login-screen/states.md");
+    expect(files).toContain("design/tokens.json");
+    const hashed = hashFiles(root, files);
+    const n00f = { ...{ ts: "2026-11-27T00:00:00.000Z", schema_version: 1 as const, harness: "0.3.0" }, type: "node_end", id: "NR9", node: "N00F", task: null, feature: "login-screen", result: "pass", loaded: [], minutes: 0 } as LedgerEvent;
+    const html = renderReviewPage({ root, node: nodes.nodes.N04, feature: "login-screen", id: "RV1", hash: "abc", files: hashed, events: [n00f] });
+    expect(html).toContain("data:image/png;base64,");
+    expect(html).toContain("디자인 시스템 (처음 한 번)");
+    expect(html).toContain('class="st na"'); // 빈 상태: 해당 없음
+    const storyBox = /<section class="story">.*?<\/section>/s.exec(html)?.[0] ?? "";
+    expect(storyBox).toContain("로그인 화면이 있으면 좋겠어요");
+    expect(storyBox).not.toContain("작업 유형"); // 스토리 칸에는 PO의 말만 (원문 칸에는 파일 그대로)
+    // 디자인 시스템을 앞 기능에서 만들었으면 다시 보이지 않는다
+    expect(renderReviewPage({ root, node: nodes.nodes.N04, feature: "login-screen", id: "RV1", hash: "abc", files: hashed, events: [] })).not.toContain("디자인 시스템 (처음 한 번)");
   });
 });

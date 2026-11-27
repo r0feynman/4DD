@@ -114,7 +114,7 @@ N04:
   method: sdd
   kind: decision
   actor: human
-  review: [story, spec, scenarios]
+  review: [story, spec, scenarios, states, frames, design_system]   # 화면 기능이면 화면 상태·프레임 이미지·디자인 시스템도 (있는 파일만, 조각 3)
   approve: {packet: "0-1", requires: [no_open_questions]}
   on_fail:
     - when: [spec_ambiguous, spec_missing_state]

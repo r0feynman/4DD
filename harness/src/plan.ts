@@ -105,6 +105,14 @@ export function reviewFilesFor(root: string, feature: string, items: readonly st
     if (item === "design") files.push(featurePath(feature, "design.md"));
     if (item === "tasks") files.push(featurePath(feature, "tasks.md"));
     if (item === "sprint") files.push(SPRINT_FILE);
+    // 조각 3: 화면 기능이면 화면 상태, 승인하면 고정될 프레임 이미지, 디자인 시스템 (있는 파일만)
+    const have = (p: string) => existsSync(join(root, p));
+    if (item === "states" && have(featurePath(feature, "states.md"))) files.push(featurePath(feature, "states.md"));
+    if (item === "frames") {
+      const ids = featureFiles(root, feature).flatMap((f) => parseFeature(readText(root, f) ?? "", f).scenarios.map((s) => s.id));
+      files.push(...ids.map((id) => `design/frames/${id}.png`).filter(have));
+    }
+    if (item === "design_system") files.push(...["design/figma.json", "design/tokens.json", "design/code-connect.json"].filter(have));
   }
   return files;
 }
