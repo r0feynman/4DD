@@ -279,10 +279,17 @@ function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[];
         : { name, ok: false, detail: `건너뛰기 표시(skip, todo, only 등)가 새로 생겼습니다: 작업 시작 때 ${before}개, 지금 ${now}개` };
     }
     case "tdd_order": {
+      // 통과한 노드, 또는 사람이 그 노드의 일을 확인하고 다음 노드로 넘긴 것(approve --to)
+      const done = (e: LedgerEvent, node: string) =>
+        (e.type === "node_end" && e.task === ctx.task && e.result === "pass" && e.node === node) ||
+        (e.type === "human" && e.task === ctx.task && e.kind === "approve" && !!e.to && e.node === node);
       const mine = events.filter((e) => e.type === "node_end" && e.task === ctx.task && e.result === "pass");
-      const red = mine.findIndex((e) => e.type === "node_end" && e.node === "N23");
-      const green = mine.findLastIndex((e) => e.type === "node_end" && e.node === "N24");
-      if (red >= 0 && green > red) return { name, ok: true, detail: "N23에서 실패하는 테스트를 쓴 뒤 N24에서 통과시켰습니다" };
+      const red = events.findIndex((e) => done(e, "N23"));
+      const green = events.findLastIndex((e) => done(e, "N24"));
+      if (red >= 0 && green > red) {
+        const byHuman = events[green].type === "human";
+        return { name, ok: true, detail: byHuman ? "N23에서 실패하는 테스트를 쓴 뒤, 사람이 N24의 구현을 확인하고 넘겼습니다" : "N23에서 실패하는 테스트를 쓴 뒤 N24에서 통과시켰습니다" };
+      }
       // 이미 충족된 작업은 구현을 바꾸지 않았으므로 TDD 순서를 따지지 않는다 (구현을 바꿨다면 위의 순서가 있어야 한다).
       const met = mine.some((e) => e.type === "node_end" && e.already_met);
       if (met && green < 0) return { name, ok: true, detail: "이미 충족된 작업이라 구현을 바꾸지 않았습니다 (TDD 순서 면제)" };

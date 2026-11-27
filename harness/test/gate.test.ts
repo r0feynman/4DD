@@ -154,6 +154,16 @@ describe("노드별 관문", () => {
     expect(after.passed).toBe(true);
   });
 
+  it("N28: N24가 막혀 사람이 구현을 확인하고 approve --to로 넘겼으면 TDD 순서로 친다 (2026-11-27 실제 실행)", () => {
+    // 앞 묶음이 T1의 통과 기록을 남겼으므로 다른 작업(T2)으로 본다
+    const t2 = () => gate("N28", "T2").checks.find((c) => c.name === "tdd_order");
+    appendEvent(root, H, { type: "node_end", id: "NR13", node: "N23", task: "T2", result: "pass", minutes: 1 });
+    appendEvent(root, H, { type: "node_end", id: "NR14", node: "N24", task: "T2", result: "fail", minutes: 1 });
+    expect(t2()).toMatchObject({ ok: false });
+    appendEvent(root, H, { type: "human", id: "HU1", node: "N24", task: "T2", kind: "approve", reason: "budget_exceeded", to: "N25", by: "dev" });
+    expect(t2()).toMatchObject({ ok: true, detail: expect.stringContaining("사람이 N24의 구현을 확인") });
+  });
+
   it("N28: 건너뛰기 표시가 새로 생기면 실패", () => {
     appendFileSync(join(root, "tests/unit/math.test.ts"), `test.skip("나중에", () => {});\n`);
     expect(gate("N28").checks.find((c) => c.name === "no_new_skips")).toMatchObject({ ok: false });
