@@ -112,7 +112,7 @@ export function buildContext(opts: ContextOptions): BuiltContext {
 
   if (node.stage < 2) {
     if (!feature) throw new Error(`${nodeId}: 어느 기능의 노드인지 모릅니다`);
-    parts.push(planWork(root, node, feature, task).join("\n\n"));
+    parts.push(planWork(root, node, feature, task, nodes).join("\n\n"));
     return { prompt: parts.join("\n\n") + "\n", loaded };
   }
   if (!task) throw new Error(`${nodeId}: 작업 없이 Stage 2 노드의 맥락을 만들 수 없습니다`);
@@ -297,7 +297,29 @@ function humanWords(root: string, events: LedgerEvent[], match: (e: Extract<Ledg
     });
 }
 
-function planWork(root: string, node: NodeDef, feature: string, task: string | null): string[] {
+/**
+ * 설계(N13)·작업 나누기(N14)가 정하는 파일을 Stage 2에서 누가 고칠 수 있는지 (조각 3, 2026-11-27 Codex 실제 실행:
+ * 설계가 잠긴 루트 package.json의 명령을 바꾸고 시험 픽스처를 시나리오 없는 작업의 tests/e2e에 둬, 아무 노드도 만들 수 없었다)
+ */
+export function stage2Writes(nodes: NodeSet, feature: string | null): string {
+  const rows = ["N22", "N23", "N24", "N25"]
+    .filter((id) => nodes.nodes[id])
+    .map((id) => {
+      const n = getNode(nodes, id);
+      return `| ${id} ${n.name} | ${globsText(resolveWrites(n, feature))} |`;
+    });
+  return [
+    "### Stage 2에서 고칠 수 있는 곳",
+    "설계가 만들거나 바꾸라고 정하는 파일은 모두 아래 노드 가운데 하나가 고칠 수 있는 곳이어야 합니다. 표 밖(루트 `package.json`, `scripts/`, 설정 파일, `specs/`, `design/`)은 Stage 2에서 아무도 고칠 수 없으므로 바꾸라고 정하지 않습니다. 시험을 돌리는 명령과 스크립트는 이미 정해져 있습니다.",
+    "앱 코드(`src/`, `mobile/`)는 시험 파일(`tests/`)을 불러오지 않습니다. 인수 테스트의 공용 파일(픽스처, 공용 함수)은 `tests/e2e/`·`tests/acceptance/` 아래에 두고 N22가 만듭니다.",
+    "",
+    "| 노드 | 고칠 수 있는 곳 |",
+    "|---|---|",
+    ...rows,
+  ].join("\n");
+}
+
+function planWork(root: string, node: NodeDef, feature: string, task: string | null, nodes: NodeSet): string[] {
   const { events } = readEvents(root);
   const reads = new Set(node.reads);
   const fp = (file: string) => featurePath(feature, file);
@@ -385,6 +407,7 @@ function planWork(root: string, node: NodeDef, feature: string, task: string | n
         .join("\n");
     const lines = files.map((f) => (f.startsWith("src/") || /^mobile\/.*\.tsx?$/.test(f) ? `- ${f}\n${exportsOf(f)}`.trimEnd() : `- ${f}`));
     work.push(`### 소스 파일 목록 (src/의 export 줄 포함)\n${lines.join("\n") || "(아직 없음)"}`);
+    if (node.stage === 1) work.push(stage2Writes(nodes, feature));
   }
   if (reads.has("tasks")) {
     const t = readText(root, fp("tasks.md"));

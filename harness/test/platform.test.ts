@@ -311,6 +311,16 @@ describe("Stage 2 화면 작업의 맥락 (조각 3)", () => {
     expect(n24).toContain("(빼고: `mobile/theme.ts`");
   });
 
+  it("설계(N13)는 Stage 2 노드마다 고칠 수 있는 곳을 받고, 디자인 시스템(N00F)은 받지 않는다", () => {
+    // 2026-11-27 Codex 실제 실행: 설계가 잠긴 package.json과 시나리오 없는 작업의 tests/e2e 픽스처를 정해 N24가 3번 막힘
+    const n13 = buildContext({ root, nodes, nodeId: "N13", task: null, feature: "login-screen" }).prompt;
+    expect(n13).toContain("### Stage 2에서 고칠 수 있는 곳");
+    expect(n13).toMatch(/\| N22 [^|]+\| `tests\/acceptance\/\*\*`, `tests\/e2e\/\*\*` \|/);
+    expect(n13).toMatch(/\| N24 [^|]+\| `src\/\*\*`, `mobile\/\*\*` \(빼고: /);
+    expect(n13).toContain("루트 `package.json`");
+    expect(buildContext({ root, nodes, nodeId: "N00F", task: null, feature: "login-screen" }).prompt).not.toContain("### Stage 2에서 고칠 수 있는 곳");
+  });
+
   it("백엔드 기능의 작업에는 화면 작업 칸이 없다", () => {
     put("specs/login-screen/story.md", "# 스토리: login-screen (HU1)\n\n작업 유형: backend\n\n로그인 화면이 있으면 좋겠어요.\n");
     try {
