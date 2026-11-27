@@ -109,6 +109,14 @@ describe("노드별 관문", () => {
     git(root, ["checkout", "--", "tests/unit/math.test.ts"]);
   });
 
+  it("N23: 설계를 고치러 갔다 N15에서 다시 승인받고 돌아와도 같다 (구현이 이미 새 설계대로일 수 있음)", () => {
+    // 2026-11-27 실제 실행: 리뷰가 arch_wrong(뒤로 가기)을 잡아 설계를 고쳤는데, 구현은 이미 새 설계대로여서 N23이 3번 막힘
+    appendEvent(root, H, { type: "node_end", id: "NR91", node: "N23", task: "T1", result: "pass", minutes: 0 }); // 지난 N04 승인 뒤 N23이 통과함
+    expect(gate("N23").runs.some((r) => r.result === "fail")).toBe(true); // N04 승인 뒤 이미 통과했으므로 다시 실패를 요구
+    appendEvent(root, H, { type: "human", id: "HU92", node: "N15", task: "T1", kind: "approve", review: "RV10" });
+    expect(gate("N23").runs.every((r) => r.result === "pass")).toBe(true);
+  });
+
   it("N26: 인수 테스트가 통과하면 통과", () => {
     expect(gate("N26").passed).toBe(true);
   });

@@ -208,7 +208,8 @@ export function reviewAskedTests(events: LedgerEvent[], task: string, nodeId: st
  * 스펙이 바뀌면 앞 작업이 쓴 단위 테스트가 옛 예시를 쓰고 있을 수 있다 (예: 아이디 lee → lee01).
  */
 export function specReapproved(events: LedgerEvent[], task: string, nodeId: string): boolean {
-  const at = events.findLastIndex((e) => e.type === "human" && e.kind === "approve" && !!e.review && e.task === task && e.node === "N04");
+  // 스펙(N04)이나 설계(N15)를 고치러 갔다 다시 승인받은 작업. 설계를 고친 경우도 구현이 이미 새 설계대로일 수 있다 (2026-11-27 실제 실행: 뒤로 가기)
+  const at = events.findLastIndex((e) => e.type === "human" && e.kind === "approve" && !!e.review && e.task === task && (e.node === "N04" || e.node === "N15"));
   if (at < 0) return false;
   return !events.slice(at + 1).some((e) => e.type === "node_end" && e.task === task && e.node === nodeId && e.result === "pass");
 }
