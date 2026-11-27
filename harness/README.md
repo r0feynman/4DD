@@ -44,7 +44,7 @@
 | 6 | 프레임 이미지 고정 | 끝 (`4dd figma pin`은 없앰: 개인 토큰 없이 N03F가 이미지를 받고 N04 승인 패킷이 고정) |
 | 7 | N26F 화면 비교 | 끝 (위 96·아래 72를 빼고 허용 5%, 지휘 루프가 가상 기기를 띄우고 끔) |
 | 8 | Claude 실제 실행 | 끝 (「로그인 화면」 작업 7개, 시나리오 17개가 Android·웹에서 통과, 하네스·환경 문제 여러 개를 고침, 약 $35) |
-| 9 | 완료 기준 전체 | |
+| 9 | 완료 기준 전체 | 진행 중: 고친 하네스로 Claude(개발자 개입 1번)와 Codex(4번)가 끝까지 감, 거기서 찾은 하네스 문제 아홉 가지 고침. 오너가 PO인 실행이 남음 |
 
 전체 조각과 순서는 [하네스 설계의 「구현 조각」](../docs/harness-design.md#구현-조각)에 있습니다.
 
@@ -78,7 +78,7 @@ src/plan.ts                 Stage 0·1의 산출물 읽기: 칸, 물을 것, 스
 src/po.ts                   PO 창구의 사람 명령: 4dd story, 4dd review, 검토 승인·되돌림 (조각 2)
 src/device.ts               가상 기기 띄우기·끄기 (4dd device, 조각 3)
 src/design.ts               디자인 산출물 형식과 관문 검사: 토큰, Code Connect, 화면 상태, 프레임 (조각 3)
-src/figma.ts                Figma 연결 확인 (4dd figma check, 조각 3)
+src/figma.ts                Figma 연결 확인 (4dd figma check --agent, 조각 3)
 src/visual.ts               화면 비교: 찍은 화면과 고정한 프레임 이미지 (N26F, 조각 3)
 src/review.ts               검토 페이지 HTML (N04 스펙·시나리오, N15 목표·백로그·설계)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
