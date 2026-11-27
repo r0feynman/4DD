@@ -1,6 +1,7 @@
 // 조각 3 2단계: 기능마다 작업 유형, 화면 기능의 플랫폼별 인수 테스트 파일과 관문 실행.
 // 진짜 기기·빌드 대신 가짜 명령(파일에 PASS가 있으면 통과)으로 N22·N26·N28을 돌린다.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -203,6 +204,28 @@ describe("화면 기능의 관문 (조각 3)", () => {
       expect(r.summary).toMatch(/명령 `sleep 3; true tests\/e2e\/web\/S15.spec.ts`이 시간 제한 [\d.]+(초|분)을 넘어 끊었습니다/);
       expect(r.summary).not.toContain("통과해야 하는데 실패했습니다 (종료 코드 124");
     } finally {
+      put("4dd.config.yaml", config());
+    }
+  });
+
+  it("시간 제한에 걸리면 명령이 띄운 자식 프로세스까지 끈다 (2026-11-27 실제 실행: 남은 플로우 스크립트와 시험 서버)", () => {
+    put("4dd.config.yaml", config().replace(/web:\n      run_files: "[^\n]*"/, `web:\n      run_files: "sleep 30 & echo $! > child.pid; wait; true"\n      flow_seconds: 1`));
+    try {
+      const r = runGate({ root, config: loadConfig(root), nodes, nodeId: "N26", task: "T9", runId: "NR1", timeoutMs: 300 });
+      expect(r.cause).toBe("env");
+      const pid = Number(readFileSync(join(root, "child.pid"), "utf8").trim());
+      let alive = true;
+      for (let i = 0; i < 20 && alive; i++) {
+        try {
+          process.kill(pid, 0);
+          spawnSync("sleep", ["0.1"]);
+        } catch {
+          alive = false;
+        }
+      }
+      expect(alive).toBe(false);
+    } finally {
+      rmSync(join(root, "child.pid"), { force: true });
       put("4dd.config.yaml", config());
     }
   });

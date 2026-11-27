@@ -141,17 +141,28 @@ function parseVitestTests(output: string): { total: number; failed: number; skip
   return { total, failed: num(/(\d+) failed/), ...(skipped ? { skipped } : {}) };
 }
 
+let hasTimeout: boolean | null = null;
+/** GNU timeout이 있는가 (한 번만 봄) */
+function gnuTimeout(): boolean {
+  if (hasTimeout === null) hasTimeout = spawnSync("timeout", ["--version"], { encoding: "utf8" }).status === 0;
+  return hasTimeout;
+}
+
 function runCommand(root: string, command: string, timeoutMs: number): { exit: number; output: string; timedOut: boolean; seconds: number } {
   const started = Date.now();
-  const r = spawnSync("sh", ["-c", command], {
+  // 시간 제한에 걸리면 명령의 자식까지 함께 끈다. spawnSync의 시간 제한은 바깥 sh만 끄므로, 그 안의 npm·node(플로우 스크립트)가
+  // 남아 가상 기기를 계속 쓰고 시험 서버를 남겼다 (2026-11-27 실제 실행). GNU timeout은 자기 프로세스 묶음 전체를 끈다
+  const wrap = gnuTimeout();
+  const [cmd, args] = wrap ? ["timeout", ["--kill-after=10s", `${(timeoutMs / 1000).toFixed(1)}s`, "sh", "-c", command]] : ["sh", ["-c", command]];
+  const r = spawnSync(cmd, args, {
     cwd: root,
     encoding: "utf8",
-    timeout: timeoutMs,
+    timeout: wrap ? timeoutMs + 30_000 : timeoutMs,
     // 하네스를 테스트 실행기 안에서 돌릴 때 그 환경 변수가 프로젝트의 테스트 실행기에 새지 않게 뺀다.
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("VITEST"))), CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
     maxBuffer: 64 * 1024 * 1024,
   });
-  const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+  const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT" || (wrap && (r.status === 124 || r.status === 137));
   const exit = r.status ?? (timedOut ? 124 : 1);
   return { exit, output: `${r.stdout ?? ""}${r.stderr ?? ""}`, timedOut, seconds: Math.round((Date.now() - started) / 100) / 10 };
 }
