@@ -34,6 +34,8 @@ export const CONTEXT_ITEMS = [
   "story", "spec", "other_specs", "other_designs", "src_map", "ids", "sprint", "tasks", "review_results",
   // 조각 3 (화면 기능)
   "states", "design_system",
+  // 조각 3 (Stage 2의 화면 작업: 기준 화면, 플로우 파일, 화면 상태, 디자인 시스템 부품)
+  "screens",
 ] as const;
 export const GATE_CHECKS = [
   "scenario_files_exist", "new_tests", "test_count_kept", "tdd_order", "no_new_skips", "locked_unchanged",

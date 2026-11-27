@@ -10,7 +10,7 @@ import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Config } from "./config.ts";
 import { git, isTracked, projectFiles } from "./git.ts";
-import { matchesAny } from "./glob.ts";
+import { globsText, matchesAny } from "./glob.ts";
 import { DIR, EventSchema } from "./ledger.ts";
 import type { NodeDef } from "./nodes.ts";
 
@@ -32,7 +32,7 @@ export function toProjectPath(root: string, file: string): string | null {
 }
 
 function writesText(node: NodeDef): string {
-  return node.writes.length ? node.writes.map((w) => `\`${w}\``).join(", ") : "없음";
+  return node.writes.length ? globsText(node.writes) : "없음";
 }
 
 /** 세션이 이 노드에서 이 파일을 고쳐도 되나 */

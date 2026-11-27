@@ -388,11 +388,14 @@ export function runGate(ctx: GateContext): GateOutcome {
     ? [
         ...commands.filter((c) => !c.includes("{task.scenario_files}")).map((template) => ({ template, files: [] as string[] })),
         // 빌드 명령이 없는 플랫폼(예: 테스트가 서버와 웹을 스스로 띄움)은 빌드 단계를 건너뛴다
-        ...perPlatform.flatMap((x) =>
-          platformRun
-            .filter((template) => !template.includes("{e2e.build}") || !!ctx.config.commands.e2e?.[x.platform]?.build)
-            .map((template) => ({ template, files: x.files, platform: x.platform })),
-        ),
+        ...perPlatform
+          // 플랫폼 전체를 돌리는 관문(N28)인데 그 플랫폼에 플로우가 아직 하나도 없으면(서버만 바꾸는 첫 작업) 빌드도 하지 않는다
+          .filter((x) => !platformRun.some((t) => t.includes("{platform.all_files}")) || allE2eFiles(ctx.root, x.platform).length > 0)
+          .flatMap((x) =>
+            platformRun
+              .filter((template) => !template.includes("{e2e.build}") || !!ctx.config.commands.e2e?.[x.platform]?.build)
+              .map((template) => ({ template, files: x.files, platform: x.platform })),
+          ),
       ]
     : commands.map((template) => ({ template, files: base.files }));
 

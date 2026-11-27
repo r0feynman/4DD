@@ -17,8 +17,8 @@ describe("하네스의 nodes.yaml", () => {
     expect(pick("N21")).toEqual(["harness", [".4dd/**"]]);
     expect(pick("N22")).toEqual(["worker", ["tests/acceptance/**", "tests/e2e/**"]]);
     expect(pick("N23")).toEqual(["worker", ["tests/unit/**"]]);
-    expect(pick("N24")).toEqual(["worker", ["src/**", "mobile/App.tsx", "mobile/screens/**", "mobile/lib/**", "mobile/package.json", "mobile/package-lock.json"]]);
-    expect(pick("N25")).toEqual(["worker", ["src/**", "mobile/App.tsx", "mobile/screens/**", "mobile/lib/**", "mobile/package.json", "mobile/package-lock.json"]]);
+    expect(pick("N24")).toEqual(["worker", ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/ui/**", "!mobile/assets/fonts/**", "!mobile/app.json"]]);
+    expect(pick("N25")).toEqual(["worker", ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/ui/**", "!mobile/assets/fonts/**", "!mobile/app.json"]]);
     expect(pick("N26")).toEqual(["harness", []]);
     expect(pick("N27")).toEqual(["reviewer", []]);
     expect(pick("N28")).toEqual(["harness", []]);

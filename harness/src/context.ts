@@ -5,11 +5,14 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { taskStartRef, GATE_DIR } from "./gate.ts";
+import { loadConfig } from "./config.ts";
+import { CODE_CONNECT_FILE, FRAMES_DIR, THEME_FILE, TOKENS_FILE } from "./design.ts";
+import { taskPlatforms, taskStartRef, GATE_DIR } from "./gate.ts";
 import { git } from "./git.ts";
+import { globsText } from "./glob.ts";
 import { DIR, readEvents, type LedgerEvent } from "./ledger.ts";
 import { getNode, instructionPath, resolveWrites, type NodeDef, type NodeSet } from "./nodes.ts";
-import { featureFiles, featureIds, featurePath, readSprint, readText, SPRINT_FILE } from "./plan.ts";
+import { e2eFile, featureFiles, featureIds, featurePath, readSprint, readText, SPRINT_FILE } from "./plan.ts";
 import { checkProject, featureNames, nextIds, parseSpec, parseTasks, scenariosForTask, type FeatureTrace } from "./trace.ts";
 
 export const HUMAN_DIR = `${DIR}/human`;
@@ -88,7 +91,7 @@ export function buildContext(opts: ContextOptions): BuiltContext {
   const unit = task ? `작업 ${task}` : `기능 ${feature ?? "-"}`;
   parts.push(`# 4DD 하네스 · ${node.id} ${node.name}${opts.readOnly ? " (리뷰)" : ""} · ${unit}`);
   const resolved = resolveWrites(node, feature);
-  const writes = !opts.readOnly && resolved.length ? resolved.map((w) => `\`${w}\``).join(", ") : "없음 (읽기 전용)";
+  const writes = !opts.readOnly && resolved.length ? globsText(resolved) : "없음 (읽기 전용)";
   parts.push(
     [
       "당신은 4DD 하네스가 띄운 세션입니다. 이번 차례에는 아래 노드 하나만 처리하고 끝냅니다.",
@@ -137,13 +140,18 @@ export function buildContext(opts: ContextOptions): BuiltContext {
       const design = join(root, trace.dir, "design.md");
       if (existsSync(design)) work.push(`### 설계 (${trace.dir}/design.md)\n${readFileSync(design, "utf8").trim()}`);
     }
+    if (node.reads.includes("screens")) {
+      const screens = screenWork(root, trace, task, node.id);
+      if (screens) work.push(screens);
+    }
   }
 
   const { events } = readEvents(root);
   if (node.reads.includes("diff")) {
     const ref = taskStartRef(events, task);
-    const diff = git(root, ["diff", `${ref}..HEAD`, "--", "src", "tests"]).trim();
-    work.push(`### 이 작업의 변경분 (git diff ${ref.slice(0, 7)}..HEAD -- src tests)\n\`\`\`diff\n${diff || "(변경 없음)"}\n\`\`\``);
+    // 화면 작업의 앱 코드(mobile/)도 함께. 잠금 파일은 길기만 하므로 뺀다 (조각 3)
+    const diff = git(root, ["diff", `${ref}..HEAD`, "--", "src", "tests", "mobile", ":(exclude)mobile/package-lock.json"]).trim();
+    work.push(`### 이 작업의 변경분 (git diff ${ref.slice(0, 7)}..HEAD -- src tests mobile)\n\`\`\`diff\n${diff || "(변경 없음)"}\n\`\`\``);
     // 이미 충족된 작업: 구현을 바꾸지 않고 넘어왔으므로, 인수 테스트가 시나리오를 제대로 확인하는지가 유일한 안전장치다.
     const met = events.some((e) => e.type === "node_end" && e.task === task && e.already_met);
     if (met && trace && t) {
@@ -186,6 +194,82 @@ export function buildContext(opts: ContextOptions): BuiltContext {
 
   parts.push(work.join("\n\n"));
   return { prompt: parts.join("\n\n") + "\n", loaded };
+}
+
+// ---------------------------------------------------------------- Stage 2의 화면 작업 (조각 3)
+
+/** states.md에서 그 시나리오들의 칸만 */
+function stateBlocks(text: string, ids: string[]): string {
+  return text
+    .split(/^(?=##\s)/m)
+    .filter((b) => ids.includes(/^##\s+(S\d+)\b/.exec(b)?.[1] ?? ""))
+    .map((b) => b.trim())
+    .join("\n\n");
+}
+
+/**
+ * 화면 기능의 작업이면: 플랫폼, 시나리오마다 기준 화면과 플로우 파일, 화면 상태, 디자인 시스템 부품, 앱 ID.
+ * 이미 쓴 플로우 파일은 내용까지 넣는다 (구현이 testID와 글자를 맞추게).
+ */
+function screenWork(root: string, trace: FeatureTrace, task: string, nodeId: string): string {
+  let config;
+  try {
+    config = loadConfig(root);
+  } catch {
+    return "";
+  }
+  const platforms = taskPlatforms(root, config, task);
+  if (!platforms.length) return "";
+  const ids = scenariosForTask(trace, task).map((s) => s.id);
+  const lines = [`### 화면 작업 (플랫폼: ${platforms.join(", ")})`];
+  if (!ids.length) {
+    lines.push("이 작업에서 통과시킬 화면 시나리오는 없습니다. 플로우 파일과 화면 비교는 같은 요구사항의 뒤 작업에서 합니다.");
+  } else {
+    lines.push(
+      "이 작업의 시나리오는 앱 화면에서 확인합니다. 인수 테스트는 플랫폼마다 한 파일이고, 마지막에 찍은 화면을 N26F가 기준 화면과 비교합니다.",
+      "",
+      `| 시나리오 | 기준 화면 (N04 승인) | ${platforms.map((p) => (p === "android" ? "Android 플로우 (Maestro)" : "웹 테스트 (Playwright)")).join(" | ")} |`,
+      `|---|---|${platforms.map(() => "---|").join("")}`,
+      ...ids.map((id) => {
+        const frame = existsSync(join(root, FRAMES_DIR, `${id}.png`)) ? `\`${FRAMES_DIR}/${id}.png\`` : "없음 (화면 없음)";
+        return `| ${id} | ${frame} | ${platforms.map((p) => `\`${e2eFile(p, id)}\``).join(" | ")} |`;
+      }),
+      "",
+      "- 기준 화면 이미지(1080×2400, 360×800 프레임의 3배)는 Read 도구로 열어 봅니다.",
+      `- 찍은 화면: Android는 \`.4dd/shots/android/<S>.png\`(플로우의 \`- takeScreenshot: <S>\`를 하네스 스크립트가 모음), 웹은 \`.4dd/shots/web/<S>.png\`(\`page.screenshot\`의 path).`,
+    );
+  }
+  const states = readText(root, `${trace.dir}/states.md`);
+  const blocks = states && ids.length ? stateBlocks(states, ids) : "";
+  if (blocks) lines.push("", `#### 화면 상태 (${trace.dir}/states.md, 이 작업의 시나리오)`, blocks);
+  let parts: { component?: string; code?: string }[] = [];
+  try {
+    parts = JSON.parse(readText(root, CODE_CONNECT_FILE) ?? "[]") as typeof parts;
+  } catch {
+    parts = [];
+  }
+  lines.push(
+    "",
+    "#### 디자인 시스템 (고칠 수 없음, 이것만 씀)",
+    `- 테마: \`${THEME_FILE}\` (값은 \`${TOKENS_FILE}\`에서 옴). 고정 색·간격·글자 크기를 쓰지 않습니다.`,
+    ...(parts.length ? [`- 부품: ${parts.map((p) => `${p.component} \`${p.code}\``).join(", ")}`] : []),
+  );
+  try {
+    const app = JSON.parse(readText(root, "mobile/app.json") ?? "{}") as { expo?: { android?: { package?: string } } };
+    const id = app.expo?.android?.package;
+    if (id && platforms.includes("android")) lines.push(`- Android 앱 ID(Maestro의 \`appId\`): \`${id}\``);
+  } catch {
+    /* app.json이 없거나 깨졌으면 넘어감 */
+  }
+  // 구현·정리·리뷰 노드에는 이미 쓴 플로우를 그대로 (testID와 글자를 맞추게)
+  if (nodeId !== "N22") {
+    const flows = platforms
+      .flatMap((p) => ids.map((id) => e2eFile(p, id)))
+      .filter((f) => existsSync(join(root, f)))
+      .map((f) => `#### ${f}\n\`\`\`${f.endsWith(".yaml") ? "yaml" : "ts"}\n${cap(readText(root, f)?.trim() ?? "", 4000)}\n\`\`\``);
+    if (flows.length) lines.push("", ...flows);
+  }
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------- Stage 0·1의 「이번 기능」 (조각 2)

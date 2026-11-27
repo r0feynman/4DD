@@ -39,11 +39,11 @@
 | 1 | 시험 프로젝트 `login-app`(서버 + Expo 앱 뼈대), 로컬 빌드, `4dd device`, Maestro·Playwright 연기 시험 | 끝 (기기 30초, Android 빌드 3분 20초, Maestro 7초, 웹 1.2초) |
 | 2 | 기능마다 작업 유형, `platforms`, 플랫폼별 인수 테스트 파일 규칙, `applies_to` | 끝 (디자인 노드 정의와 관문 넷, 픽스처 스크립트로 Android 130초·웹 12초) |
 | 3 | 작업 세션에 Figma 열기, 노드별 허용 도구, `4dd figma check` | 끝 (오너가 로그인한 서버 하나만 엶, 한 번에 $0.08, 개인 토큰 없이 프레임 이미지) |
-| 4 | N00F 디자인 시스템 | 다음 |
-| 5 | N03W·N03F, 검토 페이지의 화면 | |
-| 6 | `4dd figma pin` | |
-| 7 | N26F 화면 비교 | |
-| 8 | Claude 실제 실행 | |
+| 4 | N00F 디자인 시스템 | 끝 (실제 실행 4.4분, Figma 변수와 토큰 파일이 같음을 리뷰 세션이 확인, Code Connect는 저장소 짝 파일) |
+| 5 | N03W·N03F, 검토 페이지의 화면 | 끝 (물을 것이 남으면 디자인 노드를 미룸, 검토 페이지에 프레임·상태 칩·디자인 시스템) |
+| 6 | 프레임 이미지 고정 | 끝 (`4dd figma pin`은 없앰: 개인 토큰 없이 N03F가 이미지를 받고 N04 승인 패킷이 고정) |
+| 7 | N26F 화면 비교 | 끝 (위 96·아래 72를 빼고 허용 5%, 지휘 루프가 가상 기기를 띄우고 끔) |
+| 8 | Claude 실제 실행 | 하는 중 (Stage 0 두 번 끝, Stage 1·2 차례) |
 | 9 | 완료 기준 전체 | |
 
 전체 조각과 순서는 [하네스 설계의 「구현 조각」](../docs/harness-design.md#구현-조각)에 있습니다.
@@ -79,6 +79,7 @@ src/po.ts                   PO 창구의 사람 명령: 4dd story, 4dd review, �
 src/device.ts               가상 기기 띄우기·끄기 (4dd device, 조각 3)
 src/design.ts               디자인 산출물 형식과 관문 검사: 토큰, Code Connect, 화면 상태, 프레임 (조각 3)
 src/figma.ts                Figma 연결 확인 (4dd figma check, 조각 3)
+src/visual.ts               화면 비교: 찍은 화면과 고정한 프레임 이미지 (N26F, 조각 3)
 src/review.ts               검토 페이지 HTML (N04 스펙·시나리오, N15 목표·백로그·설계)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문

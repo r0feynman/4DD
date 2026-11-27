@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
+import { buildContext } from "../src/context.ts";
 import { platformScenarios, runGate, taskPlatforms } from "../src/gate.ts";
 import { fixtureDir, initProject } from "../src/init.ts";
 import { readEvents } from "../src/ledger.ts";
@@ -99,6 +100,10 @@ describe("화면 기능의 관문 (조각 3)", () => {
     expect(r.passed).toBe(false);
     expect(r.summary).toContain("tests/e2e/android/S15.yaml");
     expect(r.summary).toContain("tests/e2e/web/S15.spec.ts");
+  });
+
+  it("N28: 플랫폼에 플로우가 하나도 없으면(서버만 바꾼 첫 작업) 그 플랫폼은 빌드도 돌리지 않는다", () => {
+    expect(gate("N28").runs.map((x) => x.command)).toEqual(["true", "true"]);
   });
 
   it("N22: 플로우가 있고 아직 실패하면 통과, 원장에 플랫폼별 실행이 남는다", () => {
@@ -213,6 +218,32 @@ describe("화면 기능의 N04 검토 페이지 (조각 3)", () => {
     expect(storyBox).not.toContain("작업 유형"); // 스토리 칸에는 PO의 말만 (원문 칸에는 파일 그대로)
     // 디자인 시스템을 앞 기능에서 만들었으면 다시 보이지 않는다
     expect(renderReviewPage({ root, node: nodes.nodes.N04, feature: "login-screen", id: "RV1", hash: "abc", files: hashed, events: [] })).not.toContain("디자인 시스템 (처음 한 번)");
+  });
+});
+
+describe("Stage 2 화면 작업의 맥락 (조각 3)", () => {
+  it("N22는 플랫폼별 파일 표·기준 화면·상태·부품·앱 ID를, N24는 이미 쓴 플로우까지 받는다", () => {
+    // 앞 묶음들이 플로우(N22 관문), states.md, design/frames/S15.png, code-connect를 만들어 두었다
+    const n22 = buildContext({ root, nodes, nodeId: "N22", task: "T9" }).prompt;
+    expect(n22).toContain("### 화면 작업 (플랫폼: android, web)");
+    expect(n22).toContain("| S15 | `design/frames/S15.png` | `tests/e2e/android/S15.yaml` | `tests/e2e/web/S15.spec.ts` |");
+    expect(n22).toContain("#### 화면 상태");
+    expect(n22).toContain("Android 앱 ID(Maestro의 `appId`): `com.fourdd.loginapp`");
+    expect(n22).toContain("`mobile/theme.ts`");
+    expect(n22).not.toContain("#### tests/e2e/android/S15.yaml");
+    const n24 = buildContext({ root, nodes, nodeId: "N24", task: "T9" }).prompt;
+    expect(n24).toContain("#### tests/e2e/android/S15.yaml");
+    expect(n24).toContain("- launchApp");
+    expect(n24).toContain("(빼고: `mobile/theme.ts`");
+  });
+
+  it("백엔드 기능의 작업에는 화면 작업 칸이 없다", () => {
+    put("specs/login-screen/story.md", "# 스토리: login-screen (HU1)\n\n작업 유형: backend\n\n로그인 화면이 있으면 좋겠어요.\n");
+    try {
+      expect(buildContext({ root, nodes, nodeId: "N22", task: "T9" }).prompt).not.toContain("### 화면 작업");
+    } finally {
+      put("specs/login-screen/story.md", "# 스토리: login-screen (HU1)\n\n작업 유형: mobile\n\n로그인 화면이 있으면 좋겠어요.\n");
+    }
   });
 });
 
