@@ -165,7 +165,7 @@ export const REVIEW_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { file: { type: "string" }, line: { type: ["integer", "null"] }, why: { type: "string" } },
+        properties: { file: { type: "string" }, line: { type: ["integer", "null"] }, why: { type: "string", description: "한국어로 씀 (PO가 검토 페이지에서 읽음)" } },
         required: ["file", "line", "why"],
         additionalProperties: false,
       },

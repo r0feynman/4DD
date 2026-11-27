@@ -95,6 +95,7 @@ export function buildContext(opts: ContextOptions): BuiltContext {
       "- 다음 노드로 넘어가거나 관문을 판정하지 않습니다. 끝나면 하네스가 관문을 돌립니다.",
       `- 이 노드에서 고칠 수 있는 곳: ${writes}. 다른 곳을 고치려 하면 막히고, 고쳐도 하네스가 되돌립니다.`,
       "- 커밋하지 않습니다. 하네스가 합니다.",
+      ...(opts.readOnly ? ["- 지적(why)은 한국어로 씁니다. PO가 검토 페이지에서, 사람이 회고에서 읽습니다."] : []),
       ...(node.stage >= 2 ? ["- 테스트는 `npx vitest run <파일>`로 직접 돌려 봐도 됩니다."] : ["- 사람 명령(4dd human, story, review)은 쓰지 않습니다. 승인은 PO가 합니다."]),
     ].join("\n"),
   );
