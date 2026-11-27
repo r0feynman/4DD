@@ -8,7 +8,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import type { Config } from "./config.ts";
 import { appendEvent, DIR, nextId, readEvents, type LedgerEvent } from "./ledger.ts";
-import { checkCodeConnect, checkFrames, checkStates, checkTokens } from "./design.ts";
+import { checkCodeConnect, checkFrames, checkStates, checkTokens, FRAMES_DIR } from "./design.ts";
+import { compareShot, describe as describeVisual, visualSettings } from "./visual.ts";
 import { changedFiles } from "./git.ts";
 import { baselineDiff } from "./lock.ts";
 import { getNode, GATE_CHECKS, type Cause, type NodeSet } from "./nodes.ts";
@@ -217,6 +218,20 @@ function runCheck(name: GateCheck, ctx: GateContext, scenarios: { ids: string[];
       return now >= before
         ? { name, ok: true, detail: `테스트 수 ${now}개 (작업 시작 때 ${atStart}개, 노드 시작 때 ${atNode}개)` }
         : { name, ok: false, detail: `테스트가 줄었습니다: 작업 시작 때 ${atStart}개, 노드 시작 때 ${atNode}개, 지금 ${now}개` };
+    }
+    case "visual_match": {
+      // 화면 비교 (N26F, 조각 3): 작업의 화면 시나리오(프레임 이미지가 있는 것) × 플랫폼
+      const platforms = taskPlatforms(root, ctx.config, ctx.task);
+      const ids = scenarios.ids.filter((id, i) => scenarios.ids.indexOf(id) === i).filter((id) => existsSync(join(root, FRAMES_DIR, `${id}.png`)));
+      if (!platforms.length || !ids.length) return { name, ok: true, detail: "비교할 화면 시나리오가 없습니다 (화면 없음)" };
+      const settings = visualSettings(ctx.config);
+      const results = platforms.flatMap((p) => ids.map((id) => compareShot(root, id, p, settings)));
+      const bad = results.filter((r) => !r.ok);
+      return {
+        name,
+        ok: bad.length === 0,
+        detail: `화면 비교 ${results.length}개 가운데 ${results.length - bad.length}개 통과:\n  - ${results.map(describeVisual).join("\n  - ")}`,
+      };
     }
     case "no_new_skips": {
       const before = countAtRef(root, startRef).skips;

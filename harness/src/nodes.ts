@@ -40,7 +40,7 @@ export const GATE_CHECKS = [
   // 조각 2 (Stage 0·1)
   "spec_sections", "trace_scenarios", "trace_full", "design_sections", "sprint_goal", "backlog_ids", "packet_unchanged", "requirements_kept",
   // 조각 3 (화면 기능)
-  "tokens_match", "code_connect_complete", "states_complete", "frames_complete",
+  "tokens_match", "code_connect_complete", "states_complete", "frames_complete", "visual_match",
 ] as const;
 /** 검토 페이지에 넣을 수 있는 것 (조각 2) */
 export const REVIEW_ITEMS = ["story", "spec", "scenarios", "sprint", "design", "tasks", "review_results", "states", "frames", "design_system"] as const;

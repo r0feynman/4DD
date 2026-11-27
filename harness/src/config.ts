@@ -38,6 +38,16 @@ const ConfigSchema = z.strictObject({
       plan: z.string().regex(/^(team|organization)::\d+$/).optional(),
     })
     .optional(),
+  /**
+   * 화면 비교 (조각 3, N26F). 사람이 정하는 기준이라 잠긴 설정에 둔다: 허용 비율(%), 시나리오별 예외, 비교에서 뺄 위·아래 띠(px)
+   */
+  visual: z
+    .strictObject({
+      tolerance_percent: z.number().min(0).max(100).optional(),
+      overrides: z.record(z.string().regex(/^S\d+$/), z.number().min(0).max(100)).optional(),
+      ignore: z.strictObject({ top: z.number().int().min(0).optional(), bottom: z.number().int().min(0).optional() }).optional(),
+    })
+    .optional(),
   /** 가상 기기 (조각 3, 모바일). avd 이름, SDK 경로(없으면 ANDROID_HOME, ~/Android/Sdk), 부팅 기다리는 시간 */
   device: z
     .strictObject({

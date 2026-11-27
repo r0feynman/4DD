@@ -32,11 +32,23 @@ export function classifySchema(causes: Cause[]) {
   };
 }
 
+/** 노드별로 원인을 고를 때 볼 것 (조각 3: 화면 비교는 이미지를 열어 봐야 가를 수 있음) */
+const CLASSIFY_HINT: Record<string, string> = {
+  N26F: [
+    "관문 결과에 적힌 세 이미지(차이 이미지, 기준 프레임, 찍은 화면)를 Read로 열어 봅니다.",
+    "- 프레임대로 고치면 맞출 수 있으면(색, 간격, 글자 크기, 문구, 배치) `ui_mismatch`",
+    "- 화면에 나와야 할 상태 자체가 틀리면(로그인이 안 됨, 안내가 안 나옴) `code_bug`",
+    "- 프레임 자체가 틀려서 프레임대로는 구현할 수 없으면 `design_wrong` (사람 승인). 구현을 고치는 대신 프레임을 바꿔 통과하려는 것이면 안 됩니다",
+    "- 찍은 화면이 없거나 크기가 다르면 플로우나 빌드 문제이므로 `code_bug`",
+  ].join("\n"),
+};
+
 export function classifyPrompt(nodeId: string, task: string, causes: Cause[], gateSummary: string): string {
   return [
     `# 4DD 하네스 · ${nodeId} 실패 원인 분류 · 작업 ${task}`,
     "하네스의 관문이 실패했습니다. 파일은 고치지 말고, 아래 단어 가운데 원인 하나만 고르세요. 근거는 한국어로 300자 이내로 씁니다.",
     "앞 스테이지(스펙, 설계)로 가는 원인은 사람이 승인해야 진행합니다. 확실하지 않으면 code_bug를 고릅니다.",
+    ...(CLASSIFY_HINT[nodeId] ? ["", "## 이 노드에서 고르는 법", CLASSIFY_HINT[nodeId]] : []),
     "",
     "## 고를 수 있는 원인",
     ...causes.map((c) => `- \`${c}\`: ${CAUSE_MEANING[c]}`),

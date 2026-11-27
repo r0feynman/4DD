@@ -8,7 +8,9 @@ import { loadConfig } from "../src/config.ts";
 import { platformScenarios, runGate, taskPlatforms } from "../src/gate.ts";
 import { fixtureDir, initProject } from "../src/init.ts";
 import { readEvents } from "../src/ledger.ts";
-import { loadNodes } from "../src/nodes.ts";
+import { failRoute, loadNodes, nextNode } from "../src/nodes.ts";
+import { PNG } from "pngjs";
+import { compareShot, visualSettings } from "../src/visual.ts";
 import { featurePlatforms, featureWorkType } from "../src/plan.ts";
 import { PoError, tellStory } from "../src/po.ts";
 import { checkCodeConnect, checkFrames, checkStates, checkTokens } from "../src/design.ts";
@@ -211,5 +213,44 @@ describe("화면 기능의 N04 검토 페이지 (조각 3)", () => {
     expect(storyBox).not.toContain("작업 유형"); // 스토리 칸에는 PO의 말만 (원문 칸에는 파일 그대로)
     // 디자인 시스템을 앞 기능에서 만들었으면 다시 보이지 않는다
     expect(renderReviewPage({ root, node: nodes.nodes.N04, feature: "login-screen", id: "RV1", hash: "abc", files: hashed, events: [] })).not.toContain("디자인 시스템 (처음 한 번)");
+  });
+});
+
+describe("화면 비교 N26F (조각 3)", () => {
+  const W = 1080;
+  const H = 2400;
+  /** 흰 바탕에 [y0, y1) 줄을 칠한 PNG */
+  const png = (paint: [number, number][] = []) => {
+    const p = new PNG({ width: W, height: H });
+    p.data.fill(255);
+    for (const [y0, y1] of paint) for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) p.data[(y * W + x) * 4] = 0;
+    return PNG.sync.write(p);
+  };
+
+  it("같으면 0%, 다른 줄의 비율을 재고, 위·아래 띠(상태 표시줄 자리)는 빼고 본다", () => {
+    put("design/frames/S15.png", png());
+    put(".4dd/shots/android/S15.png", png([[0, 90]])); // 상태 표시줄 자리만 다름 → 0%
+    const s = visualSettings(loadConfig(root));
+    expect(compareShot(root, "S15", "android", s)).toMatchObject({ ok: true, diffPercent: 0 });
+    put(".4dd/shots/android/S15.png", png([[1000, 1223]])); // 가운데 223줄 ≈ 9.9%
+    const r = compareShot(root, "S15", "android", s);
+    expect(r.ok).toBe(false);
+    expect(r.diffPercent).toBeGreaterThan(9);
+    expect(readFileSync(join(root, r.diff!)).length).toBeGreaterThan(0);
+  });
+
+  it("N26F 관문: 플랫폼마다 비교하고, 찍은 화면이 없으면 실패", () => {
+    put(".4dd/shots/android/S15.png", png());
+    expect(gate("N26F").passed).toBe(false); // 웹 화면이 없음
+    expect(gate("N26F").checks[0].detail).toContain("web S15: 찍은 화면이 없습니다");
+    put(".4dd/shots/web/S15.png", png([[500, 520]])); // 20줄 ≈ 0.9% → 허용 5% 안
+    expect(gate("N26F").passed).toBe(true);
+  });
+
+  it("화면 기능은 N26 뒤 N26F, 백엔드는 N27; ui_mismatch는 N24로", () => {
+    expect(nextNode(nodes, "N26", "mobile")).toBe("N26F");
+    expect(nextNode(nodes, "N26", "backend")).toBe("N27");
+    expect(failRoute(nodes, "N26F", "ui_mismatch")).toEqual({ goto: "N24" });
+    expect(failRoute(nodes, "N26F", "design_wrong")).toEqual({ goto: "N03F", then: "N22", confirm: true });
   });
 });

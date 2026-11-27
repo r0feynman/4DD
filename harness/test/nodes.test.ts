@@ -9,7 +9,7 @@ describe("하네스의 nodes.yaml", () => {
 
   it("Stage 0·1(조각 2)과 Stage 2의 노드를 파일 순서대로 읽는다", () => {
     expect(set.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(set.order).toEqual(["N01", "N02", "N03", "N00F", "N03W", "N03F", "N04", "N11", "N12", "N13", "N14", "N15", "N21", "N22", "N23", "N24", "N25", "N26", "N27", "N28", "N29"]);
+    expect(set.order).toEqual(["N01", "N02", "N03", "N00F", "N03W", "N03F", "N04", "N11", "N12", "N13", "N14", "N15", "N21", "N22", "N23", "N24", "N25", "N26", "N26F", "N27", "N28", "N29"]);
   });
 
   it("노드마다 맡는 쪽과 고칠 수 있는 경로가 명세 표와 같다", () => {

@@ -285,6 +285,30 @@ N26:
       goto: human
       then: N22
 
+N26F:
+  name: 화면이 Figma 프레임과 일치?
+  stage: 2
+  method: figma
+  kind: decision
+  actor: harness
+  applies_to: [mobile, web]     # 화면 기능만 (조각 3). 백엔드는 N26 → N27
+  budget: 5                     # 화면 미세 조정이 많아 넉넉하게 (workflow.md 「횟수 제한」)
+  gate:
+    checks: [visual_match]      # 찍은 화면과 N04에서 고정한 프레임 이미지, 플랫폼마다, 허용 비율은 설정의 visual (잠금)
+  on_fail:
+    - when: ui_mismatch
+      goto: N24                 # 프레임대로 고치면 맞음: 화면 비교가 이미 Red라 단위 테스트부터 쓰지 않음. 그다음 순서대로 N25 → N26 → N26F
+    - when: code_bug
+      goto: N23
+    - when: design_wrong
+      goto: N03F                # 프레임 자체가 틀림: 사람이 승인하면 화면부터 고치고 N04 승인 뒤 원래 작업의 N22로
+      then: N22
+      confirm: true
+    - when: design_missing_state
+      goto: N03W
+      then: N22
+      confirm: true
+
 N27:
   name: 설계 스펙과 일치?
   stage: 2
