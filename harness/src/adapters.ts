@@ -57,6 +57,8 @@ export interface TurnResult {
   turns?: number;
   timedOut: boolean;
   error?: string;
+  /** Figma 도구 호출 수 (Codex는 출력에서 셈. Claude는 훅이 원장에 남김) */
+  figmaCalls?: { read: number; write: number };
 }
 
 export interface Adapter {
@@ -153,16 +155,47 @@ export const claudeAdapter: Adapter = {
 
 // ---------------------------------------------------------------- Codex
 
-export function codexArgs(req: TurnRequest, schemaFile: string | null): string[] {
+/**
+ * Codex 세션의 MCP 설정 덮어쓰기 (조각 3). Claude의 --strict-mcp-config처럼 사용자가 등록한 서버를 모두 끄고,
+ * Figma 노드에만 오너가 `codex mcp add`·`codex mcp login`한 Figma 서버를 그 노드의 도구로만 연다.
+ * 디자인 노드는 프레임 이미지를 curl로 받으므로 작업 폴더 샌드박스의 네트워크를 연다.
+ */
+export function codexMcpOverrides(req: TurnRequest, servers: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const name of servers) if (name !== req.figma?.server) out.push("-c", `mcp_servers.${name}.enabled=false`);
+  if (req.figma) {
+    const tools = figmaTools(req.figma).map((t) => `"${t.split("__").at(-1)}"`);
+    out.push("-c", `mcp_servers.${req.figma.server}.enabled=true`, "-c", `mcp_servers.${req.figma.server}.enabled_tools=[${tools.join(", ")}]`);
+    if (req.figma.level === "write" && !req.readOnly) out.push("-c", "sandbox_workspace_write.network_access=true");
+  }
+  return out;
+}
+
+export function codexArgs(req: TurnRequest, schemaFile: string | null, servers: readonly string[] = []): string[] {
   const args = req.sessionId ? ["exec", "resume", req.sessionId] : ["exec"];
   args.push("--json");
   if (!req.sessionId) args.push("-C", req.root, "-s", req.readOnly ? "read-only" : "workspace-write");
   if (schemaFile) args.push("--output-schema", schemaFile);
+  args.push(...codexMcpOverrides(req, servers));
   args.push(req.prompt);
   return args;
 }
 
-export function parseCodexOutput(stdout: string): Omit<TurnResult, "minutes" | "timedOut"> {
+let codexServers: string[] | null = null;
+/** 사용자가 Codex에 등록한 MCP 서버 이름 (한 번 읽어 둠). 못 읽으면 빈 목록 */
+export function codexMcpServers(): string[] {
+  if (codexServers) return codexServers;
+  const r = spawnSync("codex", ["mcp", "list", "--json"], { encoding: "utf8", timeout: 30_000, env: childEnv({}) });
+  try {
+    const list = JSON.parse(r.stdout ?? "[]") as { name?: unknown }[];
+    codexServers = list.map((x) => x.name).filter((n): n is string => typeof n === "string" && /^[A-Za-z0-9_-]+$/.test(n));
+  } catch {
+    codexServers = [];
+  }
+  return codexServers;
+}
+
+export function parseCodexOutput(stdout: string, figmaServer?: string): Omit<TurnResult, "minutes" | "timedOut"> {
   let sessionId: string | null = null;
   let text = "";
   let input = 0;
@@ -171,6 +204,7 @@ export function parseCodexOutput(stdout: string): Omit<TurnResult, "minutes" | "
   let turns = 0;
   let sawUsage = false;
   let error: string | undefined;
+  const figma = { read: 0, write: 0 };
   for (const line of stdout.split("\n")) {
     if (!line.trim().startsWith("{")) continue;
     let e: Record<string, unknown>;
@@ -191,6 +225,7 @@ export function parseCodexOutput(stdout: string): Omit<TurnResult, "minutes" | "
     if (e.type === "item.completed") {
       const item = (e.item ?? {}) as Record<string, unknown>;
       if (item.type === "agent_message" && typeof item.text === "string") text = item.text;
+      if (item.type === "mcp_tool_call" && figmaServer && item.server === figmaServer) figma[FIGMA_WRITE_TOOLS.includes(String(item.tool)) ? "write" : "read"]++;
     }
     if (e.type === "turn.failed" || e.type === "error") {
       const msg = (e.error as { message?: string } | undefined)?.message ?? (e.message as string | undefined) ?? "";
@@ -212,6 +247,7 @@ export function parseCodexOutput(stdout: string): Omit<TurnResult, "minutes" | "
     ...(sawUsage ? { tokens: { input: input - cached, output, cached } } : {}),
     ...(turns ? { turns } : {}),
     ...(error ? { error } : {}),
+    ...(figma.read + figma.write ? { figmaCalls: figma } : {}),
   };
 }
 
@@ -224,7 +260,7 @@ export const codexAdapter: Adapter = {
       schemaFile = join(mkdtempSync(join(tmpdir(), "4dd-schema-")), "schema.json");
       writeFileSync(schemaFile, JSON.stringify(req.jsonSchema));
     }
-    const r = spawnSync("codex", codexArgs(req, schemaFile), {
+    const r = spawnSync("codex", codexArgs(req, schemaFile, codexMcpServers()), {
       cwd: req.root,
       encoding: "utf8",
       timeout: req.timeoutMs,
@@ -232,7 +268,7 @@ export const codexAdapter: Adapter = {
       maxBuffer: 64 * 1024 * 1024,
     });
     const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
-    const parsed = parseCodexOutput(r.stdout ?? "");
+    const parsed = parseCodexOutput(r.stdout ?? "", req.figma?.server);
     return {
       ...parsed,
       sessionId: parsed.sessionId ?? req.sessionId,

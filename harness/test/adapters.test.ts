@@ -62,6 +62,35 @@ describe("Codex 어댑터", () => {
     expect(codexArgs({ ...req, readOnly: true }, "/tmp/s.json")).toEqual(["exec", "--json", "-C", "/p", "-s", "read-only", "--output-schema", "/tmp/s.json", "할 일"]);
   });
 
+  it("사용자가 등록한 MCP 서버를 모두 끄고, Figma 노드에만 Figma 서버를 그 노드의 도구로 연다 (조각 3)", () => {
+    const servers = ["context7", "notion", "figma-4dd"];
+    const plain = codexArgs(req, null, servers);
+    expect(plain.slice(-7)).toEqual(["-c", "mcp_servers.context7.enabled=false", "-c", "mcp_servers.notion.enabled=false", "-c", "mcp_servers.figma-4dd.enabled=false", "할 일"]);
+    const draw = codexArgs({ ...req, figma: { level: "write", server: "figma-4dd", url: "https://mcp.figma.com/mcp" } }, null, servers);
+    expect(draw).toContain("mcp_servers.notion.enabled=false");
+    expect(draw).not.toContain("mcp_servers.figma-4dd.enabled=false");
+    expect(draw).toContain("mcp_servers.figma-4dd.enabled=true");
+    const tools = draw.find((a) => a.startsWith("mcp_servers.figma-4dd.enabled_tools="))!;
+    expect(tools).toContain('"use_figma"');
+    expect(tools).toContain('"download_assets"');
+    expect(draw).toContain("sandbox_workspace_write.network_access=true"); // 프레임 이미지를 curl로 받음
+    const look = codexArgs({ ...req, readOnly: true, figma: { level: "read", server: "figma-4dd", url: "https://mcp.figma.com/mcp" } }, null, servers);
+    expect(look.find((a) => a.startsWith("mcp_servers.figma-4dd.enabled_tools="))).not.toContain('"use_figma"');
+    expect(look).not.toContain("sandbox_workspace_write.network_access=true");
+  });
+
+  it("Figma 서버의 도구 호출을 읽기·쓰기로 센다", () => {
+    const lines = [
+      { type: "thread.started", thread_id: "t-8" },
+      { type: "item.completed", item: { type: "mcp_tool_call", server: "figma-4dd", tool: "get_screenshot", status: "completed" } },
+      { type: "item.completed", item: { type: "mcp_tool_call", server: "figma-4dd", tool: "use_figma", status: "completed" } },
+      { type: "item.completed", item: { type: "mcp_tool_call", server: "other", tool: "x", status: "completed" } },
+      { type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 1 } },
+    ].map((e) => JSON.stringify(e));
+    expect(parseCodexOutput(lines.join("\n"), "figma-4dd").figmaCalls).toEqual({ read: 1, write: 1 });
+    expect(parseCodexOutput(lines.join("\n")).figmaCalls).toBeUndefined();
+  });
+
   it("JSONL 이벤트에서 세션, 마지막 메시지, 토큰을 읽는다", () => {
     const lines = [
       { type: "thread.started", thread_id: "t-7" },

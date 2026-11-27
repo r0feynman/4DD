@@ -120,7 +120,10 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
 
   const passed = !stop && turn.ok && diff.violations.length === 0 && (gate?.passed ?? true) && (review?.passed ?? true);
   const both = review?.turn ? sumTurns(turn, review.turn) : turn;
-  const figmaCalls = node.figma ? countFigmaCalls(readEvents(root).events, runId) : undefined;
+  // Figma 호출: Claude는 훅이 원장에 남긴 것, Codex는 차례 출력에서 센 것 (그린 세션과 리뷰 세션 합)
+  const figmaCalls = node.figma
+    ? [turn, review?.turn].reduce((a, t) => ({ read: a.read + (t?.figmaCalls?.read ?? 0), write: a.write + (t?.figmaCalls?.write ?? 0) }), countFigmaCalls(readEvents(root).events, runId))
+    : undefined;
   appendEvent(root, H, {
     type: "node_end",
     id: runId,
