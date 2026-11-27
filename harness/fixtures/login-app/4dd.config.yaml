@@ -1,0 +1,13 @@
+# 4DD 하네스 프로젝트 설정 (조각 3: 백엔드와 앱 화면이 함께 있는 프로젝트)
+work_type: feature            # 기능마다 작업 유형을 story.md 머리에 둠 (없으면 backend)
+profile: full
+agent: claude                 # claude | codex
+platforms: [android, web]     # 화면 기능의 인수 테스트와 화면 비교를 돌리는 플랫폼
+commands:
+  unit: npx vitest run tests/unit
+  acceptance: npx vitest run tests/acceptance
+  run_files: npx vitest run        # 파일을 받아 그 테스트만 돌림 (N22, N26이 작업의 시나리오만 돌릴 때)
+device:
+  avd: 4dd-api36              # 4dd device up이 띄우는 가상 기기
+# 모든 노드에서 잠긴 경로. 노드의 writes에 적힌 경로만 그 노드에서 풀린다.
+locked: ["specs/**", "design/**", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".githooks/**"]

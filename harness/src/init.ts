@@ -77,7 +77,7 @@ export function initProject(dest: string, opts: InitOptions = {}): InitResult {
   writeFileSync(preCommit, `#!/bin/sh\n# 4DD 잠금 검사 (4dd init이 만듦)\nexec ${hookCommand("check commit")}\n`);
   chmodSync(preCommit, 0o755);
   // node_modules는 링크로 둘 수도 있어서(폴더가 아니면 "node_modules/"에 안 맞음) 슬래시 없이 한 번 더 적는다.
-  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\n${DIR}/review/\n${DIR}/report.md\nnode_modules\n`);
+  appendFileSync(join(root, ".gitignore"), `\n# 4DD: 원장에서 다시 만드는 파일과 관문 출력\n${DIR}/state.json\n${DIR}/*.tmp\n${DIR}/gates/\n${DIR}/review/\n${DIR}/report.md\n${DIR}/shots/\n${DIR}/device.log\nnode_modules\n`);
 
   // 4. git 저장소. 기준 해시는 git이 아는 파일로 정하므로 저장소를 먼저 만든다.
   git(root, ["init", "-q", "-b", "main"]);
@@ -85,8 +85,12 @@ export function initProject(dest: string, opts: InitOptions = {}): InitResult {
   const locked = Object.keys(computeBaseline(root, config)).length;
 
   // 5. 시험 프로젝트의 의존 패키지
-  if (opts.install !== false && existsSync(join(root, "package-lock.json"))) {
-    execFileSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: root, stdio: "ignore" });
+  // 앱처럼 하위 폴더에 따로 패키지가 있으면(조각 3의 mobile/) 거기도 설치한다
+  if (opts.install !== false) {
+    const dirs = [root, ...readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && !SKIP.has(e.name)).map((e) => join(root, e.name))];
+    for (const dir of dirs) {
+      if (existsSync(join(dir, "package-lock.json"))) execFileSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: dir, stdio: "ignore" });
+    }
   }
 
   // 6. 첫 커밋 뒤에 git 훅을 켠다 (첫 커밋은 잠긴 파일을 처음 올리는 것이라 막히면 안 된다).

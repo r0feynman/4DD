@@ -22,6 +22,7 @@ import { loadState, type State } from "./state.ts";
 import { checkProject, formatIssues, nextIds } from "./trace.ts";
 import { approveReview, buildReview, recordPublished, rejectReview, tellStory, type Speaker } from "./po.ts";
 import { featureOfTask } from "./plan.ts";
+import { bootedSerial, DeviceError, deviceDown, deviceSettings, deviceUp } from "./device.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
@@ -37,6 +38,7 @@ const USAGE = `사용법: 4dd <명령>
   status [폴더] [--root 폴더]                  지금 작업과 노드, 기다리는 이유
   check trace [폴더] [--stage 0]               추적 ID(R, @S, T)가 이어져 있고 프로젝트 전체에서 겹치지 않는지 (--stage 0은 요구사항과 시나리오만)
   ids [폴더] [--json]                          프로젝트에서 다음에 쓸 R, S, T 번호
+  device <up|down|status> [--root 폴더]         가상 기기를 창 없이 띄우고 부팅을 기다리거나, 끄거나, 떠 있는지 봄 (조각 3)
   check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
   check bash <명령>                            셸 명령에 하네스만 할 수 있는 git 명령이 있는지
   check hook --tool <claude|codex>             훅 입구 (표준 입력의 훅 JSON을 읽음)
@@ -353,6 +355,38 @@ function main(argv: string[]): number {
       // PO 창구 스킬은 모든 명령에 --root를 붙인다. 폴더를 위치 인자로 줘도 된다
       const { pos, opt } = parseArgs(rest);
       return status(str(opt.root) ?? pos[0]);
+    }
+    if (cmd === "device") {
+      const { pos, opt } = parseArgs(rest);
+      const root = resolve(str(opt.root) ?? ".");
+      const config = existsSync(join(root, "4dd.config.yaml")) ? loadConfig(root) : undefined;
+      const d = deviceSettings(config);
+      const H = loadNodes().version;
+      try {
+        if (pos[0] === "up") {
+          const r = deviceUp(root, d, H);
+          out(r.already ? `가상 기기 ${d.avd}가 이미 떠 있습니다 (${r.serial})` : `가상 기기 ${d.avd}를 띄웠습니다 (${r.serial}, 부팅 ${r.bootSeconds}초)`);
+          return 0;
+        }
+        if (pos[0] === "down") {
+          const n = deviceDown(root, d, H);
+          out(n ? `가상 기기 ${n}대를 껐습니다` : "떠 있는 가상 기기가 없습니다");
+          return 0;
+        }
+        if (pos[0] === "status") {
+          const s = bootedSerial(d);
+          out(s ? `가상 기기 ${d.avd}: 떠 있음 (${s})` : `가상 기기 ${d.avd}: 꺼져 있음`);
+          return 0;
+        }
+        err("사용법: 4dd device <up|down|status> [--root 폴더]");
+        return 1;
+      } catch (e) {
+        if (e instanceof DeviceError) {
+          err(e.message);
+          return 2;
+        }
+        throw e;
+      }
     }
     if (cmd === "ids") {
       const { pos, opt } = parseArgs(rest);

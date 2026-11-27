@@ -144,6 +144,15 @@ export const EventSchema = z.discriminatedUnion("type", [
     refs: z.array(z.string()).default([]),
     review: Id("RV"),
   }),
+  /** 가상 기기를 띄우거나 끔 (조각 3) */
+  z.strictObject({
+    type: z.literal("device"),
+    ...Common,
+    action: z.enum(["up", "down"]),
+    avd: z.string().min(1),
+    result: z.enum(["ok", "already", "fail"]),
+    boot_seconds: z.number().int().min(0).optional(),
+  }),
   z.strictObject({ type: z.literal("commit"), ...Common, sha: z.string().regex(/^[0-9a-f]{7,40}$/), node: Node, task: Task.nullable() }),
   /** paused: 작업 수 한도로 잠시 멈춤 (그대로 다시 돌리면 됨) · stopped: 사람이 고치고 승인해야 다시 감 · error: 하네스 오류 */
   z.strictObject({ type: z.literal("run_end"), ...Common, run: Id("RUN"), reason: z.enum(["done", "wait_human", "paused", "error", "stopped"]) }),

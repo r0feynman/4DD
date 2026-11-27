@@ -20,6 +20,14 @@ const ConfigSchema = z.strictObject({
     visual: z.string().min(1).optional(),
   }),
   locked: z.array(z.string().min(1)).default([]),
+  /** 가상 기기 (조각 3, 모바일). avd 이름, SDK 경로(없으면 ANDROID_HOME, ~/Android/Sdk), 부팅 기다리는 시간 */
+  device: z
+    .strictObject({
+      avd: z.string().min(1).optional(),
+      sdk: z.string().min(1).optional(),
+      boot_timeout_sec: z.number().int().min(10).optional(),
+    })
+    .optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
