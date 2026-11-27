@@ -165,6 +165,24 @@ describe("화면 기능의 관문 (조각 3)", () => {
     }
   });
 
+  it("플로우 명령은 파일 수만큼 시간을 더 받고, 시간을 넘으면 env로 요약에 시간 제한을 적는다 (2026-11-27 실제 실행)", () => {
+    const slow = (sec: number) =>
+      config().replace(/web:\n      run_files: "[^\n]*"/, `web:\n      run_files: "sleep ${sec}; true"\n      flow_seconds: 1`);
+    put("4dd.config.yaml", slow(0.8));
+    try {
+      const at = (nodeId: string) => runGate({ root, config: loadConfig(root), nodes, nodeId, task: "T9", runId: "NR1", timeoutMs: 300 });
+      // 기본 0.3초로는 모자라지만 파일 하나에 1초를 더 받아 끝남
+      expect(at("N26").runs.filter((r) => r.command.startsWith("sleep")).map((r) => r.result)).toEqual(["pass"]);
+      put("4dd.config.yaml", slow(3));
+      const r = at("N26");
+      expect(r.cause).toBe("env");
+      expect(r.summary).toMatch(/명령 `sleep 3; true tests\/e2e\/web\/S15.spec.ts`이 시간 제한 [\d.]+(초|분)을 넘어 끊었습니다/);
+      expect(r.summary).not.toContain("통과해야 하는데 실패했습니다 (종료 코드 124");
+    } finally {
+      put("4dd.config.yaml", config());
+    }
+  });
+
   it("N28: 단위·인수 테스트에 더해 플랫폼마다 플로우 전체를 돌린다", () => {
     const r = gate("N28");
     const cmds = r.runs.map((x) => x.command);

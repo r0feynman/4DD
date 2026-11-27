@@ -23,6 +23,8 @@ export const REVIEW_NOTE_HEAD = "리뷰 세션의 참고 (통과):";
 /** 리뷰 세션이 승인된 스펙·시나리오끼리의 모순을 찾았을 때 지적 앞에 붙이는 말 (N13.review.md) */
 export const SPEC_CONFLICT = "스펙·시나리오 모순";
 export const GATE_TIMEOUT_MS = 10 * 60_000;
+/** 플로우 파일 하나에 더 주는 시간 (조각 3, 2026-11-27 실제 실행: 잠금 시나리오 7개가 Android에서 10분을 넘음) */
+export const FLOW_SECONDS: Record<Platform, number> = { android: 180, web: 60 };
 export const ACCEPTANCE_DIR = "tests/acceptance";
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
@@ -51,6 +53,8 @@ export interface GateRunResult {
   log: string;
   /** 앱 빌드 명령 ({e2e.build}) */
   build?: boolean;
+  /** 시간 제한을 넘어 끊음 (그 제한, 초) */
+  timedOutSec?: number;
 }
 
 export interface GateCheckResult {
@@ -155,6 +159,8 @@ function runCommand(root: string, command: string, timeoutMs: number): { exit: n
 /** gate_run에 더 남길 것 (조각 3) */
 interface RunExtra {
   seconds?: number;
+  /** 시간 제한을 넘어 끊었으면 그 제한(초). 원장에는 남기지 않고 요약에만 씀 */
+  timedOutSec?: number;
   build?: boolean;
   scenario?: string;
   diff_percent?: number;
@@ -180,9 +186,9 @@ function record(ctx: GateContext, command: string, exit: number, result: "pass" 
     ...(flakyRerun ? { flaky_rerun: true } : {}),
     ...(platform ? { platform } : {}),
     ...(tests ? { tests } : {}),
-    ...extra,
+    ...Object.fromEntries(Object.entries(extra).filter(([k]) => k !== "timedOutSec")),
   });
-  return { id, command, exit, result, flakyRerun, log, ...(extra.build ? { build: true } : {}) };
+  return { id, command, exit, result, flakyRerun, log, ...(extra.build ? { build: true } : {}), ...(extra.timedOutSec ? { timedOutSec: extra.timedOutSec } : {}) };
 }
 
 /**
@@ -466,11 +472,14 @@ export function runGate(ctx: GateContext): GateOutcome {
     const command = expand(step.template, ctx.config, step.files, step.platform, ctx.root);
     // 앱 빌드({e2e.build})는 기대(실패해야 함)와 상관없이 성공해야 한다. 빌드가 깨지면 그 플랫폼의 테스트를 돌리지 않는다
     const isBuild = step.template.includes("{e2e.build}");
-    let r = runCommand(ctx.root, command, timeoutMs);
+    // 플로우 파일을 받는 플랫폼 명령은 파일 수만큼 시간을 더 준다
+    const stepTimeout =
+      step.platform && !isBuild && step.files.length ? timeoutMs + step.files.length * (ctx.config.commands.e2e?.[step.platform]?.flow_seconds ?? FLOW_SECONDS[step.platform]) * 1000 : timeoutMs;
+    let r = runCommand(ctx.root, command, stepTimeout);
     const envProblem = r.timedOut || r.exit === 126 || r.exit === 127;
     const met = (exit: number) => (isBuild ? exit === 0 : reentry || (gate.expect === "pass" ? exit === 0 : exit !== 0));
     if (envProblem) {
-      runs.push(record(ctx, command, r.exit, "fail", false, r.output, step.platform, { seconds: r.seconds, ...(isBuild ? { build: true } : {}) }));
+      runs.push(record(ctx, command, r.exit, "fail", false, r.output, step.platform, { seconds: r.seconds, ...(isBuild ? { build: true } : {}), ...(r.timedOut ? { timedOutSec: Math.max(1, Math.round(stepTimeout / 1000)) } : {}) }));
       cause = "env";
       continue;
     }
@@ -485,7 +494,7 @@ export function runGate(ctx: GateContext): GateOutcome {
     }
     if (!met(r.exit) && gate.flaky_rerun && gate.expect === "pass") {
       // test_flaky: 한 번 다시 돌려 결과가 바뀌면 테스트가 불안정한 것이다. 이 재실행은 횟수에 넣지 않는다.
-      r = runCommand(ctx.root, command, timeoutMs);
+      r = runCommand(ctx.root, command, stepTimeout);
       runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", true, r.output, step.platform, { seconds: r.seconds }));
       if (met(r.exit)) cause = "test_flaky";
     }
@@ -512,6 +521,11 @@ export function runGate(ctx: GateContext): GateOutcome {
   for (const r of runs) {
     if (r.result === "pass") continue;
     if (r.flakyRerun && cause === "test_flaky") continue;
+    if (r.timedOutSec) {
+      const limit = r.timedOutSec >= 60 ? `${Math.round(r.timedOutSec / 6) / 10}분` : `${r.timedOutSec}초`;
+      lines.push(`명령 \`${r.command}\`이 시간 제한 ${limit}을 넘어 끊었습니다 (출력 ${r.log})`);
+      continue;
+    }
     if (r.build) {
       lines.push(`앱 빌드 \`${r.command}\`가 깨졌습니다 (종료 코드 ${r.exit}, 출력 ${r.log}). 이 플랫폼의 플로우는 돌리지 않았습니다`);
       continue;

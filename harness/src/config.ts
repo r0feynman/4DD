@@ -21,8 +21,9 @@ const ConfigSchema = z.strictObject({
     /** 화면 기능의 플랫폼별 명령 (조각 3): build는 앱을 빌드해 기기에 올림, run_files는 플로우·테스트 파일을 받아 돌림 */
     e2e: z
       .strictObject({
-        android: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1) }).optional(),
-        web: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1) }).optional(),
+        // flow_seconds: 플로우 파일 하나에 더 주는 시간 (관문 시간 제한 = 기본 10분 + 파일 수 × 이 값). 기본 Android 180초, 웹 60초
+        android: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1), flow_seconds: z.number().int().positive().optional() }).optional(),
+        web: z.strictObject({ build: z.string().min(1).optional(), run_files: z.string().min(1), flow_seconds: z.number().int().positive().optional() }).optional(),
       })
       .optional(),
   }),

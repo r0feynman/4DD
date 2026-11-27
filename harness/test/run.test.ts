@@ -26,7 +26,7 @@ interface Script {
   /** 이 노드·작업에서 일을 하지 않는 횟수 (관문 실패를 일으킨다) */
   lazy?: Record<string, number>;
   /** 리뷰 결과를 차례로 */
-  reviews?: { pass: boolean; cause: "code_bug" | "arch_wrong" | null; fix_in?: "behavior" | "structure" | "acceptance_test" }[];
+  reviews?: { pass: boolean; cause: "code_bug" | "arch_wrong" | null; fix_in?: "behavior" | "structure" | "acceptance_test" | "unit_test" }[];
   /** 힌트를 받으면 그때부터 제대로 한다 */
   fixOnHint?: boolean;
 }
