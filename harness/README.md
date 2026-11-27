@@ -32,6 +32,20 @@
 | 8 | `4dd report`에 더하는 질의 | 끝 (기능별 사람 개입·대기·되돌림·스테이지별 토큰) |
 | 9 | 완료 기준 전체 | 끝 (두 도구로 각본 PO 실행, 고친 하네스로 Codex 사람 개입 0번. 오너가 PO인 실행 「회원 가입」으로 작업 5개, 거기서 찾은 하네스 문제 다섯 가지 고침) |
 
+### 조각 3 ([명세](../docs/harness-slice3.md))
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | 시험 프로젝트 `login-app`(서버 + Expo 앱 뼈대), 로컬 빌드, `4dd device`, Maestro·Playwright 연기 시험 | 끝 (기기 30초, Android 빌드 3분 20초, Maestro 7초, 웹 1.2초) |
+| 2 | 기능마다 작업 유형, `platforms`, 플랫폼별 인수 테스트 파일 규칙, `applies_to` | 다음 |
+| 3 | 작업 세션에 Figma 열기, 노드별 허용 도구, `4dd figma check` | |
+| 4 | N00F 디자인 시스템 | |
+| 5 | N03W·N03F, 검토 페이지의 화면 | |
+| 6 | `4dd figma pin` | |
+| 7 | N26F 화면 비교 | |
+| 8 | Claude 실제 실행 | |
+| 9 | 완료 기준 전체 | |
+
 전체 조각과 순서는 [하네스 설계의 「구현 조각」](../docs/harness-design.md#구현-조각)에 있습니다.
 
 ## 폴더
@@ -62,6 +76,7 @@ src/classify.ts             실패 원인 분류 (기계 → 세션이 고름 �
 src/report.ts               4dd report: 개선 지표와 반복 실수·비효율 질의
 src/plan.ts                 Stage 0·1의 산출물 읽기: 칸, 물을 것, 스프린트, 검토·패킷 해시 (조각 2)
 src/po.ts                   PO 창구의 사람 명령: 4dd story, 4dd review, 검토 승인·되돌림 (조각 2)
+src/device.ts               가상 기기 띄우기·끄기 (4dd device, 조각 3)
 src/review.ts               검토 페이지 HTML (N04 스펙·시나리오, N15 목표·백로그·설계)
 nodes/nodes.yaml            노드 정의의 원본 (Stage 2)
 nodes/instructions/         작업 세션과 리뷰 세션이 받는 노드 지시문
@@ -69,6 +84,7 @@ skills/4dd-po/              PO 창구 스킬 원본 (4dd init이 프로젝트의
 test/                       하네스 테스트
 fixtures/login-backend/     시험 프로젝트 원본 (4dd init이 복사해서 돌림)
 fixtures/login-reset/       로그인이 끝난 시험 프로젝트 (조각 2, 두 번째 기능을 더함)
+fixtures/login-app/         로그인·회원 가입이 끝난 서버와 Expo 앱 뼈대 (조각 3, 화면 기능을 더함)
 fixtures/login-reset.story.md  조각 2 시험 스토리 (PO 창구가 4dd story로 넣음)
 ```
 
