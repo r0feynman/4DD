@@ -63,6 +63,8 @@ export const EventSchema = z.discriminatedUnion("type", [
     cost_usd: z.number().min(0).optional(),
     minutes: z.number().min(0),
     turns: z.number().int().min(0).optional(),
+    /** 이어 쓴 세션의 누적 표시 가격 (cost_usd는 이번 차례 몫만). 다음 차례가 이 값을 빼서 자기 몫을 낸다 */
+    session_cost: z.strictObject({ session: z.string().min(1), usd: z.number().min(0) }).optional(),
     /** Figma 도구를 부른 수 (조각 3: 하루 읽기 한도 안에 드는지) */
     figma_calls: z.strictObject({ read: z.number().int().min(0), write: z.number().int().min(0) }).optional(),
   }),

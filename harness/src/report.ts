@@ -89,8 +89,43 @@ export interface FeatureMetrics {
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 const inc = (m: Map<string, number>, k: string, by = 1) => m.set(k, (m.get(k) ?? 0) + by);
 
+/**
+ * 노드 실행마다 그 차례 몫의 표시 가격.
+ * session_cost가 있으면 cost_usd가 이미 그 차례 몫이다. 옛 기록(2026-11-27 전)은 이어 쓴 Claude 세션의 누적 금액이 cost_usd에 들어 있어,
+ * 같은 세션의 직전 값을 뺀다. 세션이 적히지 않은 판단 노드(원인 분류 차례)는 그 작업의 바로 앞 작업 세션으로 본다.
+ */
+export function ownCosts(events: LedgerEvent[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const last = new Map<string, number>();
+  const taskSession = new Map<string, string>();
+  for (const e of events) {
+    if (e.type !== "node_end" || e.cost_usd === undefined) {
+      if (e.type === "node_end" && e.session && e.task) taskSession.set(e.task, e.session);
+      continue;
+    }
+    if (e.session_cost) {
+      out.set(e.id, e.cost_usd);
+      last.set(e.session_cost.session, e.session_cost.usd);
+      if (e.session && e.task) taskSession.set(e.task, e.session);
+      continue;
+    }
+    const session = e.session ?? (e.task ? taskSession.get(e.task) : undefined);
+    if (!session) {
+      out.set(e.id, e.cost_usd);
+      continue;
+    }
+    const before = last.get(session) ?? 0;
+    out.set(e.id, Math.max(0, e.cost_usd - before));
+    last.set(session, Math.max(before, e.cost_usd));
+    if (e.session && e.task) taskSession.set(e.task, e.session);
+  }
+  return out;
+}
+
 export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
   const ends = events.filter((e): e is NodeEnd => e.type === "node_end");
+  const own = ownCosts(events);
+  const costOf = (e: NodeEnd) => own.get(e.id) ?? 0;
   const starts = new Map(events.filter((e): e is NodeStart => e.type === "node_start").map((e) => [e.id, e]));
   const taskIds = [...new Set(ends.map((e) => e.task).filter((t): t is string => !!t))];
   const isDecision = (n: string) => nodes.nodes[n]?.kind === "decision";
@@ -129,7 +164,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
       tokensIn: mine.reduce((n, e) => n + (e.tokens?.input ?? 0), 0),
       tokensOut: mine.reduce((n, e) => n + (e.tokens?.output ?? 0), 0),
       tokensCached: mine.reduce((n, e) => n + (e.tokens?.cached ?? 0), 0),
-      costUsd: round(mine.reduce((n, e) => n + (e.cost_usd ?? 0), 0), 3),
+      costUsd: round(mine.reduce((n, e) => n + costOf(e), 0), 3),
       minutes: round(mine.reduce((n, e) => n + e.minutes, 0)),
       done: mine.some((e) => e.task_done),
     };
@@ -168,7 +203,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
     const c = cost.get(e.node) ?? { tokens: 0, minutes: 0, costUsd: 0 };
     c.tokens += (e.tokens?.input ?? 0) + (e.tokens?.output ?? 0);
     c.minutes += e.minutes;
-    c.costUsd += e.cost_usd ?? 0;
+    c.costUsd += costOf(e);
     cost.set(e.node, c);
   }
   // 지시문 버전(해시)별로 첫 차례에 통과한 비율
@@ -198,7 +233,7 @@ export function buildReport(events: LedgerEvent[], nodes: NodeSet): Report {
   }
 
   const split = (k: string) => k.split("|");
-  const features = featureMetrics(events, ends, nodes);
+  const features = featureMetrics(events, ends, nodes, own);
   return {
     tasks,
     totals,
@@ -282,7 +317,7 @@ type Human = Extract<LedgerEvent, { type: "human" }>;
 type ReviewEv = Extract<LedgerEvent, { type: "review" }>;
 
 /** 기능별 Stage 0·1 지표. 작업은 패킷 1 → 2(N15 승인)에 담긴 T로 그 기능에 묶는다. */
-function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet): FeatureMetrics[] {
+function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet, own: Map<string, number> = ownCosts(events)): FeatureMetrics[] {
   const names = [...new Set([...ends.map((e) => e.feature), ...events.map((e) => (e.type === "human" ? e.feature : undefined))].filter((f): f is string => !!f))];
   return names.map((feature) => {
     const tasks = new Set(events.flatMap((e) => (e.type === "packet" && e.feature === feature && e.boundary === "1-2" ? e.refs.filter((r) => /^T\d+$/.test(r)) : [])));
@@ -323,7 +358,7 @@ function featureMetrics(events: LedgerEvent[], ends: NodeEnd[], nodes: NodeSet):
       const v = stageMap.get(st) ?? { tokens: 0, minutes: 0, costUsd: 0 };
       v.tokens += (e.tokens?.input ?? 0) + (e.tokens?.output ?? 0);
       v.minutes += e.minutes;
-      v.costUsd += e.cost_usd ?? 0;
+      v.costUsd += own.get(e.id) ?? 0;
       stageMap.set(st, v);
     }
     return {

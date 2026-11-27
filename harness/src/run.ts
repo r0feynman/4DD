@@ -20,7 +20,7 @@ import { DeviceError, deviceDown, deviceSettings, deviceUp } from "./device.ts";
 import { decideNext } from "./route.ts";
 import { loadState, type State } from "./state.ts";
 import { checkProject, type FeatureTrace, type Task } from "./trace.ts";
-import { runReviewNode, runSessionNode } from "./turn.ts";
+import { perTurnCost, runReviewNode, runSessionNode } from "./turn.ts";
 
 export interface RunOptions {
   root: string;
@@ -151,7 +151,9 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
   const pickCause = !gate.passed && !(node.otherwise && !gate.cause) && task !== null;
   const c = pickCause ? classifyFailure({ root, nodes, nodeId, task: task!, runId, ...(gate.cause ? { machineCause: gate.cause } : {}), gateSummary: gate.summary, session, adapter }) : undefined;
   const minutes = Math.round(((Date.now() - t0) / 60_000) * 100) / 100;
-  const t = c?.turn;
+  // 분류 차례는 그 작업의 세션을 이어 쓰므로 누적 금액에서 직전 값을 뺀다
+  const priced = c?.turn ? perTurnCost(events, c.turn, session) : undefined;
+  const t = priced?.turn;
   appendEvent(root, nodes.version, {
     type: "node_end",
     id: runId,
@@ -163,6 +165,7 @@ function runHarnessDecision(root: string, nodes: NodeSet, config: Config, nodeId
     ...(c?.next ? { next: c.next, ...(c.then ? { then: c.then } : {}) } : {}),
     ...(t?.tokens ? { tokens: t.tokens } : {}),
     ...(t?.costUsd !== undefined ? { cost_usd: t.costUsd } : {}),
+    ...(priced?.sessionCost ? { session_cost: priced.sessionCost } : {}),
     minutes,
   });
   if (c) {

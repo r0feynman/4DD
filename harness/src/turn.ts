@@ -75,7 +75,8 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
   const ctx = buildContext({ root, nodes, nodeId, task, feature });
   const snap = ledgerSnapshot(root);
   const env = { FOURDD_ROOT: root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: runId, ...(feature ? { FOURDD_FEATURE: feature } : {}) };
-  const turn = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs, ...figmaFor(node, opts.config) });
+  const raw = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs, ...figmaFor(node, opts.config) });
+  const { turn, sessionCost } = perTurnCost(events, raw, session);
 
   const notes: string[] = [];
   let stop: string | undefined;
@@ -137,6 +138,7 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
     loaded: [...ctx.loaded, ...(review?.loaded ?? [])],
     ...(both.tokens ? { tokens: both.tokens } : {}),
     ...(both.costUsd !== undefined ? { cost_usd: both.costUsd } : {}),
+    ...(sessionCost ? { session_cost: sessionCost } : {}),
     minutes: both.minutes,
     ...(both.turns !== undefined ? { turns: both.turns } : {}),
     ...(figmaCalls ? { figma_calls: figmaCalls } : {}),
@@ -378,4 +380,27 @@ export function countFigmaCalls(events: LedgerEvent[], runId: string): { read: n
   const calls = events.filter((e): e is Extract<LedgerEvent, { type: "hook_run" }> => e.type === "hook_run" && e.check === "figma" && e.run === runId);
   const write = calls.filter((e) => FIGMA_WRITE_TOOLS.includes((e.target ?? "").split("__").at(-1) ?? "")).length;
   return { read: calls.length - write, write };
+}
+
+/** 원장에 남은 그 세션의 마지막 누적 표시 가격. 옛 기록(session_cost가 없음)은 cost_usd가 누적값이었다 */
+export function lastSessionUsd(events: LedgerEvent[], session: string): number {
+  let last = 0;
+  for (const e of events) {
+    if (e.type !== "node_end") continue;
+    if (e.session_cost) {
+      if (e.session_cost.session === session) last = e.session_cost.usd;
+    } else if (e.session === session && e.cost_usd !== undefined) last = Math.max(last, e.cost_usd);
+  }
+  return last;
+}
+
+/**
+ * 이번 차례의 표시 가격. `claude -p --resume`의 total_cost_usd는 그 세션의 누적 금액이라(2026-11-27 실제 실행에서 확인),
+ * 이어 쓴 세션이면 원장에 남은 직전 누적값을 뺀다. 새 세션이면 그대로. 누적값은 session_cost로 따로 남긴다.
+ */
+export function perTurnCost(events: LedgerEvent[], turn: TurnResult, resumed: string | null): { turn: TurnResult; sessionCost?: { session: string; usd: number } } {
+  if (turn.costUsd === undefined || !turn.sessionId) return { turn };
+  const before = resumed ? lastSessionUsd(events, turn.sessionId) : 0;
+  const own = Math.max(0, Math.round((turn.costUsd - before) * 1e6) / 1e6);
+  return { turn: { ...turn, costUsd: own }, sessionCost: { session: turn.sessionId, usd: turn.costUsd } };
 }

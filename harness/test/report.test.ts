@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { LedgerEvent } from "../src/ledger.ts";
 import { loadNodes } from "../src/nodes.ts";
-import { buildReport, renderReport } from "../src/report.ts";
+import { buildReport, ownCosts, renderReport } from "../src/report.ts";
+import { perTurnCost } from "../src/turn.ts";
 
 const nodes = loadNodes();
 const base = { ts: "2026-11-25T00:00:00.000Z", schema_version: 1 as const, harness: "0.1.0" };
@@ -116,5 +117,36 @@ describe("4dd report: 화면 기능 (조각 3)", () => {
   it("화면 기록이 없으면 그 칸을 쓰지 않는다", () => {
     expect(buildReport(events, nodes).screens).toBeNull();
     expect(renderReport(buildReport(events, nodes))).not.toContain("화면 기능 (조각 3)");
+  });
+});
+
+describe("표시 가격은 차례 몫만 (2026-11-27 실제 실행)", () => {
+  const end = (id: string, task: string, nodeId: string, extra: Record<string, unknown>) =>
+    ev({ type: "node_end", id, node: nodeId, task, result: "pass", loaded: [], minutes: 1, ...extra });
+
+  it("이어 쓴 세션의 누적 금액에서 원장에 남은 직전 누적값을 뺀다", () => {
+    const events = [end("NR1", "T1", "N22", { session: "s1", cost_usd: 0.5, session_cost: { session: "s1", usd: 0.5 } })];
+    const turn = { ok: true, sessionId: "s1", text: "", minutes: 1, timedOut: false, costUsd: 0.8 };
+    expect(perTurnCost(events, turn, "s1")).toEqual({ turn: { ...turn, costUsd: 0.3 }, sessionCost: { session: "s1", usd: 0.8 } });
+    // 새 세션이면 그대로
+    expect(perTurnCost(events, { ...turn, sessionId: "s2" }, null).turn.costUsd).toBe(0.8);
+    // 금액이 없으면(Codex) 손대지 않음
+    expect(perTurnCost(events, { ...turn, costUsd: undefined }, "s1")).toEqual({ turn: { ...turn, costUsd: undefined } });
+  });
+
+  it("옛 기록(cost_usd가 누적값)은 보고서가 같은 세션의 직전 값을 빼서 센다. 세션이 없는 분류 차례는 그 작업의 앞 세션으로 본다", () => {
+    const old = [
+      end("NR1", "T1", "N22", { session: "s1", cost_usd: 0.5 }),
+      end("NR2", "T1", "N23", { session: "s1", cost_usd: 0.7 }),
+      end("NR3", "T1", "N26F", { cost_usd: 1.0 }), // 분류 차례가 s1을 이어 씀
+      end("NR4", "T1", "N24", { session: "s1", cost_usd: 1.4 }),
+      end("NR5", "T1", "N27", { session: "r1", cost_usd: 0.2 }), // 새 리뷰 세션
+    ];
+    const own = ownCosts(old);
+    expect([...own.values()].map((x) => Math.round(x * 100) / 100)).toEqual([0.5, 0.2, 0.3, 0.4, 0.2]);
+    expect(buildReport(old, nodes).tasks[0].costUsd).toBe(1.6);
+    // 새 기록과 섞여도 새 기록은 그대로
+    const mixed = [...old, end("NR6", "T1", "N25", { session: "s1", cost_usd: 0.1, session_cost: { session: "s1", usd: 1.5 } })];
+    expect(ownCosts(mixed).get("NR6")).toBe(0.1);
   });
 });
