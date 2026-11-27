@@ -1,1 +1,5 @@
 node_modules/
+
+# Playwright 실행 출력 (조각 3)
+test-results/
+playwright-report/
