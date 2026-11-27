@@ -160,3 +160,18 @@ describe("Figma를 여는 차례 (조각 3)", () => {
     expect(review).not.toContain("Bash(curl *)");
   });
 });
+
+describe("Figma 연결 확인 안내", () => {
+  it("도구마다 등록·로그인 명령이 다르다", async () => {
+    const { figmaSetupHint } = await import("../src/figma.ts");
+    const f = { level: "read" as const, server: "figma-4dd", url: "https://mcp.figma.com/mcp" };
+    expect(figmaSetupHint("codex", f)).toBe("오너가 한 번: codex mcp add figma-4dd --url https://mcp.figma.com/mcp 뒤 codex mcp login figma-4dd");
+    expect(figmaSetupHint("claude", f)).toContain("claude mcp add --scope user --transport http figma-4dd https://mcp.figma.com/mcp");
+  });
+
+  it("확인 형식은 Codex의 엄격한 형식에 맞는다 (모든 필드 필수, 다른 필드 없음)", async () => {
+    const { FIGMA_CHECK_SCHEMA: s } = await import("../src/figma.ts");
+    expect(s.additionalProperties).toBe(false);
+    expect([...s.required].sort()).toEqual(Object.keys(s.properties).sort());
+  });
+});
