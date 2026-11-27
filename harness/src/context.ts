@@ -273,6 +273,8 @@ function planWork(root: string, node: NodeDef, feature: string, task: string | n
   if (reads.has("design_system")) {
     const tokens = readText(root, "design/tokens.json");
     const cc = readText(root, "design/code-connect.json");
+    const fig = readText(root, "design/figma.json");
+    if (fig) work.push(`### Figma 파일 (design/figma.json)\n\`\`\`json\n${fig.trim()}\n\`\`\``);
     work.push(
       tokens
         ? `### 디자인 시스템 (design/tokens.json, design/code-connect.json)\n\`\`\`json\n${tokens.trim()}\n\`\`\`\n\`\`\`json\n${(cc ?? "[]").trim()}\n\`\`\``

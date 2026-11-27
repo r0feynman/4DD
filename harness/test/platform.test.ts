@@ -11,11 +11,13 @@ import { readEvents } from "../src/ledger.ts";
 import { loadNodes } from "../src/nodes.ts";
 import { featurePlatforms, featureWorkType } from "../src/plan.ts";
 import { PoError, tellStory } from "../src/po.ts";
+import { checkCodeConnect, checkFrames, checkStates, checkTokens } from "../src/design.ts";
+import { git } from "../src/git.ts";
 import { readFileSync } from "node:fs";
 
 const nodes = loadNodes();
 let root = "";
-const put = (rel: string, text: string) => {
+const put = (rel: string, text: string | Buffer) => {
   mkdirSync(dirname(join(root, rel)), { recursive: true });
   writeFileSync(join(root, rel), text);
 };
@@ -127,5 +129,63 @@ describe("화면 기능의 관문 (조각 3)", () => {
     expect(cmds.slice(0, 2)).toEqual(["true", "true"]);
     expect(cmds.some((c) => c.includes("tests/e2e/android/S15.yaml"))).toBe(true);
     expect(cmds.some((c) => c.includes("tests/e2e/web/S15.spec.ts"))).toBe(true);
+  });
+});
+
+describe("디자인 산출물 관문 (조각 3)", () => {
+  // 1080×2400 PNG 머리만 있는 가짜 이미지
+  const png = (w: number, h: number) => {
+    const b = Buffer.alloc(33);
+    b.writeUInt32BE(0x89504e47, 0);
+    b.writeUInt32BE(0x0d0a1a0a, 4);
+    b.writeUInt32BE(13, 8);
+    b.write("IHDR", 12);
+    b.writeUInt32BE(w, 16);
+    b.writeUInt32BE(h, 20);
+    return b;
+  };
+
+  it("토큰: 네 묶음이 있고 테마가 토큰 파일을 가져다 써야 통과", () => {
+    expect(checkTokens(root).ok).toBe(false);
+    put("design/tokens.json", JSON.stringify({ color: { text: "#111" }, space: { s: 8 }, font: { family: "Noto Sans KR" }, radius: { m: 8 } }));
+    put("mobile/theme.ts", "export const theme = { text: \"#111\" };\n");
+    expect(checkTokens(root).detail).toContain("import");
+    put("mobile/theme.ts", 'import tokens from "../design/tokens.json";\nexport const theme = tokens;\n');
+    expect(checkTokens(root).ok).toBe(true);
+  });
+
+  it("Code Connect: 컴포넌트 넷이 노드와 코드 파일에 이어져야 통과", () => {
+    put("design/code-connect.json", JSON.stringify([{ component: "Button", figma: "1:2", code: "mobile/ui/Button.tsx" }]));
+    put("mobile/ui/Button.tsx", "export {};\n");
+    const r = checkCodeConnect(root);
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain("TextField: 연결 없음");
+    const all = ["Button", "TextField", "Text", "Banner"].map((c, i) => ({ component: c, figma: `1:${i + 2}`, code: `mobile/ui/${c}.tsx` }));
+    for (const c of all) put(c.code, "export {};\n");
+    put("design/code-connect.json", JSON.stringify(all));
+    expect(checkCodeConnect(root).ok).toBe(true);
+  });
+
+  it("화면 상태: 시나리오마다 다섯 상태를 채우거나 화면 없음의 이유를 적어야 통과", () => {
+    put("specs/login-screen/states.md", "## S15\n- 성공: 환영 화면\n- 실패: 안내 띠\n");
+    expect(checkStates(root, "login-screen").detail).toContain("빈 상태, 로딩, 오류");
+    put("specs/login-screen/states.md", "## S15\n- 성공: 환영\n- 실패: 띠\n- 빈 상태: 해당 없음: 첫 화면\n- 로딩: 버튼 비활성\n- 오류: 띠\n");
+    expect(checkStates(root, "login-screen").ok).toBe(true);
+  });
+
+  it("프레임: 시나리오마다 프레임 줄과 1080×2400 이미지가 있어야 하고, 프레임 줄 말고는 시나리오를 바꿀 수 없다", () => {
+    const file = "specs/login-screen/login-screen.feature";
+    git(root, ["add", "-A"]);
+    git(root, ["commit", "-q", "-m", "fixture"], { FOURDD_ALLOW_LOCKED: "1" });
+    expect(checkFrames(root, "login-screen").detail).toContain("프레임 줄이 없음");
+    const text = readFileSync(join(root, file), "utf8").replace("  @S15 @R10", "  # figma: 12:345\n  @S15 @R10");
+    put(file, text);
+    put("design/frames/S15.png", png(360, 800));
+    expect(checkFrames(root, "login-screen").detail).toContain("1080×2400");
+    put("design/frames/S15.png", png(1080, 2400));
+    expect(checkFrames(root, "login-screen").ok).toBe(true);
+    put(file, text.replace("환영 화면이 보인다", "다른 화면이 보인다"));
+    expect(checkFrames(root, "login-screen").detail).toContain("프레임 줄 말고 시나리오가 바뀌었습니다");
+    put(file, text);
   });
 });

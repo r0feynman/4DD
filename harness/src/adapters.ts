@@ -22,6 +22,28 @@ export interface TurnRequest {
   readOnly?: boolean;
   /** 정해진 출력 형식 (리뷰, 실패 원인 분류) */
   jsonSchema?: object;
+  /** 이 차례에 Figma를 연다 (조각 3). 노드의 figma 값과 설정의 서버. 없으면 MCP를 모두 끈다 */
+  figma?: FigmaAccess;
+}
+
+export interface FigmaAccess {
+  level: "read" | "write";
+  /** 오너가 Claude Code에 등록·로그인한 Figma MCP 서버 이름 (로그인이 이 이름으로 이어짐) */
+  server: string;
+  url: string;
+}
+
+/** 읽기 노드(N13, N22~N27, 리뷰 세션)가 쓰는 Figma 도구 */
+export const FIGMA_READ_TOOLS = [
+  "whoami", "get_metadata", "get_screenshot", "get_design_context", "get_variable_defs", "get_code_connect_map",
+  "get_figma_skill", "search_design_system", "download_assets", "get_libraries", "create_session",
+];
+/** 디자인 노드(N00F, N03W, N03F)만 더 쓰는 Figma 도구 (그리기, 파일 만들기, Code Connect) */
+export const FIGMA_WRITE_TOOLS = ["use_figma", "create_new_file", "add_code_connect_map", "send_code_connect_mappings", "upload_assets"];
+
+export function figmaTools(f: FigmaAccess): string[] {
+  const names = f.level === "write" ? [...FIGMA_READ_TOOLS, ...FIGMA_WRITE_TOOLS] : FIGMA_READ_TOOLS;
+  return names.map((n) => `mcp__${f.server}__${n}`);
 }
 
 export interface TurnResult {
@@ -61,11 +83,17 @@ export function claudeArgs(req: TurnRequest, sessionId: string, resume: boolean)
   // 오너의 전역 설정(전역 훅, MCP 서버, 플러그인)이 하네스 세션에 섞이지 않게 한다. 하네스 훅은 --settings로 넣는다.
   args.push("--setting-sources", "project", "--settings", join(req.root, ".4dd", "hooks", "claude.json"));
   args.push("--strict-mcp-config", "--disable-slash-commands");
+  // Figma를 쓰는 노드만 오너가 로그인해 둔 Figma 서버 하나를 연다 (조각 3). 다른 MCP와 사용자 훅은 그대로 꺼져 있다
+  if (req.figma) args.push("--mcp-config", JSON.stringify({ mcpServers: { [req.figma.server]: { type: "http", url: req.figma.url } } }));
+  const figma = req.figma ? figmaTools(req.figma) : [];
   if (req.readOnly) {
     args.push("--tools", "Read,Glob,Grep", "--permission-mode", "dontAsk");
+    if (figma.length) args.push("--allowedTools", ...figma);
   } else {
     args.push("--tools", "Read,Edit,Write,Glob,Grep,Bash", "--permission-mode", "acceptEdits");
-    args.push("--allowedTools", ...CLAUDE_ALLOWED_BASH.map((c) => `Bash(${c})`));
+    // Figma 도구가 주는 짧은 다운로드 주소로 프레임 이미지를 받으려고 curl을 연다 (N03F)
+    const bash = req.figma ? [...CLAUDE_ALLOWED_BASH, "curl *"] : CLAUDE_ALLOWED_BASH;
+    args.push("--allowedTools", ...bash.map((c) => `Bash(${c})`), ...figma);
     args.push("--disallowedTools", "Bash(git commit *)", "Bash(git push *)");
   }
   if (req.jsonSchema) args.push("--json-schema", JSON.stringify(req.jsonSchema));

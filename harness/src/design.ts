@@ -8,7 +8,7 @@
 // Figma와 파일이 같은지는 리뷰 세션(L1)이 본다. 여기서는 파일끼리와 파일의 형식만 본다
 // (Figma 변수를 읽는 REST API는 Enterprise 요금제에서만 되므로, 조각 3 명세 「구현하며 확인할 것」).
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./git.ts";
 import { featureFiles, readText } from "./plan.ts";
@@ -163,6 +163,18 @@ export function figmaFrames(text: string): Map<string, string> {
   return out;
 }
 
+/** 프레임 이미지 크기 (조각 3: 360×800 프레임을 3배로 받아 기기 화면 1080×2400과 같게) */
+export const FRAME_SIZE = { width: 1080, height: 2400 };
+export const FRAMES_DIR = "design/frames";
+
+/** PNG 머리에서 너비와 높이. PNG가 아니면 null */
+export function pngSize(file: string): { width: number; height: number } | null {
+  if (!existsSync(file)) return null;
+  const b = readFileSync(file).subarray(0, 24);
+  if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) return null;
+  return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+}
+
 const withoutFrames = (text: string) =>
   text
     .split("\n")
@@ -182,6 +194,10 @@ export function checkFrames(root: string, feature: string): CheckResult {
       const node = frames.get(s.id);
       if (!node) problems.push(`${s.id}: 프레임 줄이 없음 (시나리오 위에 「# figma: <node-id>」)`);
       else if (!FIGMA_NODE.test(node)) problems.push(`${s.id}: 프레임 노드 ID 형식이 다름 (${node}, 예: 12:345)`);
+      const img = `${FRAMES_DIR}/${s.id}.png`;
+      const size = pngSize(join(root, img));
+      if (!size) problems.push(`${s.id}: 프레임 이미지가 없거나 PNG가 아님 (${img}, download_assets를 3배로)`);
+      else if (size.width !== FRAME_SIZE.width || size.height !== FRAME_SIZE.height) problems.push(`${s.id}: 프레임 이미지가 ${size.width}×${size.height}입니다. 기기 화면과 같은 ${FRAME_SIZE.width}×${FRAME_SIZE.height}이어야 함 (360×800 프레임을 3배로)`);
     }
     let before: string | null = null;
     try {

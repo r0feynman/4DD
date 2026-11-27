@@ -27,6 +27,17 @@ const ConfigSchema = z.strictObject({
       .optional(),
   }),
   locked: z.array(z.string().min(1)).default([]),
+  /**
+   * Figma (조각 3). server: 오너가 `claude mcp add`로 등록하고 로그인한 Figma MCP 서버 이름 (작업 세션은 이 서버 하나만 엶),
+   * plan: 디자인 시스템(N00F)이 Figma 파일을 만들 팀 (없으면 쓰기 시트가 있는 유일한 팀)
+   */
+  figma: z
+    .strictObject({
+      server: z.string().min(1).default("figma-4dd"),
+      url: z.string().url().default("https://mcp.figma.com/mcp"),
+      plan: z.string().regex(/^(team|organization)::\d+$/).optional(),
+    })
+    .optional(),
   /** 가상 기기 (조각 3, 모바일). avd 이름, SDK 경로(없으면 ANDROID_HOME, ~/Android/Sdk), 부팅 기다리는 시간 */
   device: z
     .strictObject({

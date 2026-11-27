@@ -23,6 +23,7 @@ import { checkProject, formatIssues, nextIds } from "./trace.ts";
 import { approveReview, buildReview, recordPublished, rejectReview, tellStory, type Speaker } from "./po.ts";
 import { featureOfTask, STORY_TYPES, type StoryType } from "./plan.ts";
 import { bootedSerial, DeviceError, deviceDown, deviceSettings, deviceUp } from "./device.ts";
+import { figmaCheck } from "./figma.ts";
 
 const USAGE = `사용법: 4dd <명령>
 
@@ -38,6 +39,7 @@ const USAGE = `사용법: 4dd <명령>
   status [폴더] [--root 폴더]                  지금 작업과 노드, 기다리는 이유
   check trace [폴더] [--stage 0]               추적 ID(R, @S, T)가 이어져 있고 프로젝트 전체에서 겹치지 않는지 (--stage 0은 요구사항과 시나리오만)
   ids [폴더] [--json]                          프로젝트에서 다음에 쓸 R, S, T 번호
+  figma check [--root 폴더]                    작업 세션처럼 Figma 서버 하나만 열고 로그인이 이어지는지 확인 (조각 3)
   device <up|down|status> [--root 폴더]         가상 기기를 창 없이 띄우고 부팅을 기다리거나, 끄거나, 떠 있는지 봄 (조각 3)
   check path <파일> --node <노드> [--root 폴더]  이 노드에서 이 파일을 고쳐도 되는지
   check bash <명령>                            셸 명령에 하네스만 할 수 있는 git 명령이 있는지
@@ -360,6 +362,19 @@ function main(argv: string[]): number {
       // PO 창구 스킬은 모든 명령에 --root를 붙인다. 폴더를 위치 인자로 줘도 된다
       const { pos, opt } = parseArgs(rest);
       return status(str(opt.root) ?? pos[0]);
+    }
+    if (cmd === "figma" && rest[0] === "check") {
+      const { opt } = parseArgs(rest.slice(1));
+      const root = resolve(str(opt.root) ?? ".");
+      const config = existsSync(join(root, "4dd.config.yaml")) ? loadConfig(root) : undefined;
+      const r = figmaCheck(root, config);
+      const cost = r.costUsd !== undefined ? ` (표시 가격 $${r.costUsd.toFixed(2)})` : "";
+      if (r.ok) {
+        out(`Figma에 연결됩니다: ${r.handle ?? "?"} · ${(r.plans ?? []).join(", ")}${cost}`);
+        return 0;
+      }
+      err(`Figma에 연결하지 못했습니다: ${r.error ?? "이유 모름"}${cost}\n오너가 한 번: claude mcp add --scope user --transport http figma-4dd https://mcp.figma.com/mcp 뒤 claude의 /mcp에서 로그인`);
+      return 2;
     }
     if (cmd === "device") {
       const { pos, opt } = parseArgs(rest);

@@ -98,3 +98,36 @@ describe("하위 에이전트 환경", () => {
     expect(env.PATH).toBe(process.env.PATH);
   });
 });
+
+describe("Figma를 여는 차례 (조각 3)", () => {
+  const base: TurnRequest = { root: "/p", prompt: "x", sessionId: null, env: {}, timeoutMs: 1000 };
+  const figma = { server: "figma-4dd", url: "https://mcp.figma.com/mcp" };
+  const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+  it("Figma가 없는 노드는 MCP를 모두 끈 채 그대로", () => {
+    const a = claudeArgs(base, "u", false);
+    expect(a).toContain("--strict-mcp-config");
+    expect(a).not.toContain("--mcp-config");
+    expect(a.join(" ")).not.toContain("mcp__");
+    expect(a.join(" ")).not.toContain("curl");
+  });
+
+  it("디자인 노드(write)는 Figma 서버 하나만 열고 그리기 도구와 curl까지 허용", () => {
+    const a = claudeArgs({ ...base, figma: { level: "write", ...figma } }, "u", false);
+    expect(a).toContain("--strict-mcp-config");
+    expect(JSON.parse(after(a, "--mcp-config"))).toEqual({ mcpServers: { "figma-4dd": { type: "http", url: "https://mcp.figma.com/mcp" } } });
+    expect(a).toContain("mcp__figma-4dd__use_figma");
+    expect(a).toContain("mcp__figma-4dd__download_assets");
+    expect(a).toContain("Bash(curl *)");
+  });
+
+  it("읽기 노드와 리뷰 세션은 그리기 도구가 없다 (G10: 구현이 디자인을 바꾸지 못함)", () => {
+    const work = claudeArgs({ ...base, figma: { level: "read", ...figma } }, "u", false);
+    expect(work).toContain("mcp__figma-4dd__get_design_context");
+    expect(work).not.toContain("mcp__figma-4dd__use_figma");
+    const review = claudeArgs({ ...base, readOnly: true, figma: { level: "read", ...figma } }, "u", false);
+    expect(review).toContain("mcp__figma-4dd__get_screenshot");
+    expect(review).not.toContain("mcp__figma-4dd__use_figma");
+    expect(review).not.toContain("Bash(curl *)");
+  });
+});

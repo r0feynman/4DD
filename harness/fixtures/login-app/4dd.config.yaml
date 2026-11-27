@@ -18,3 +18,5 @@ device:
   avd: 4dd-api36              # 4dd device up이 띄우는 가상 기기
 # 모든 노드에서 잠긴 경로. 노드의 writes에 적힌 경로만 그 노드에서 풀린다.
 locked: ["specs/**", "design/**", "scripts/**", "playwright.config.ts", "4dd.config.yaml", ".4dd/**", ".claude/**", ".codex/**", ".githooks/**"]
+figma:
+  server: figma-4dd           # 오너가 claude mcp add로 등록하고 /mcp에서 로그인한 Figma MCP 서버 (작업 세션은 이것 하나만 엶)

@@ -71,7 +71,7 @@ N00F:
   figma: write
   instruction: instructions/N00F.md
   reads: [story, spec, design_system, src_map, last_gate, hint]
-  writes: ["design/tokens.json", "design/code-connect.json", "mobile/theme.ts", "mobile/ui/**", "mobile/assets/fonts/**", "mobile/package.json", "mobile/package-lock.json", "mobile/App.tsx"]
+  writes: ["design/figma.json", "design/tokens.json", "design/code-connect.json", "mobile/theme.ts", "mobile/ui/**", "mobile/assets/fonts/**", "mobile/package.json", "mobile/package-lock.json", "mobile/App.tsx"]
   gate:
     checks: [tokens_match, code_connect_complete]
     review: instructions/N00F.review.md   # 리뷰 세션(L1): Figma 변수·컴포넌트와 파일이 같은지
@@ -103,7 +103,7 @@ N03F:
   figma: write
   instruction: instructions/N03F.md
   reads: [spec, scenarios, states, design_system, last_gate, hint]
-  writes: ["specs/{feature}/*.feature"]   # 시나리오 위의 「# figma: <node-id>」 줄만 (관문이 다른 변경을 막음)
+  writes: ["specs/{feature}/*.feature", "design/frames/**"]   # 시나리오 위의 「# figma: <node-id>」 줄(관문이 다른 변경을 막음)과 프레임 이미지
   gate:
     checks: [frames_complete]
     review: instructions/N03F.review.md   # 리뷰 세션(L1): 시나리오와 화면이 맞는지, 디자인 시스템만 썼는지

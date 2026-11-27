@@ -2,7 +2,7 @@
 //
 // 지휘 프로그램(4dd run)은 이 함수를 노드마다 부르고, 통과하면 커밋하고 다음 노드로 간다.
 
-import type { Adapter, TurnResult } from "./adapters.ts";
+import type { Adapter, FigmaAccess, TurnResult } from "./adapters.ts";
 import type { Config } from "./config.ts";
 import { buildContext } from "./context.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -75,7 +75,7 @@ export function runSessionNode(opts: SessionNodeOptions): SessionNodeOutcome {
   const ctx = buildContext({ root, nodes, nodeId, task, feature });
   const snap = ledgerSnapshot(root);
   const env = { FOURDD_ROOT: root, FOURDD_NODE: nodeId, FOURDD_NODE_RUN: runId, ...(feature ? { FOURDD_FEATURE: feature } : {}) };
-  const turn = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs });
+  const turn = opts.adapter.runTurn({ root, prompt: ctx.prompt, sessionId: session, env, timeoutMs, ...figmaFor(node, opts.config) });
 
   const notes: string[] = [];
   let stop: string | undefined;
@@ -323,6 +323,12 @@ function sumTurns(a: TurnResult, b: TurnResult): TurnResult {
   return { ...a, minutes: Math.round((a.minutes + b.minutes) * 100) / 100, ...(tokens ? { tokens } : {}), ...(cost !== undefined ? { costUsd: cost } : {}), ...(turns !== undefined ? { turns } : {}) };
 }
 
+/** 노드의 figma 값으로 이 차례에 열 Figma (조각 3). 설정에 figma가 없어도 기본 서버(figma-4dd)를 쓴다 */
+function figmaFor(node: NodeDef, config: Config): { figma?: FigmaAccess } {
+  if (!node.figma) return {};
+  return { figma: { level: node.figma, server: config.figma?.server ?? "figma-4dd", url: config.figma?.url ?? "https://mcp.figma.com/mcp" } };
+}
+
 /** 작업 세션이 쓴 것을 새 리뷰 세션(읽기 전용)이 판정한다. 지적은 관문 요약에 붙어 다음 차례의 맥락이 된다. */
 function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: string; env: Record<string, string>; timeoutMs: number; gateSummary: string }): GateReview {
   const { root, nodes, nodeId, task, feature, runId } = o;
@@ -330,7 +336,9 @@ function runGateReview(o: SessionNodeOptions & { feature: string | null; runId: 
   const rctx = buildContext({ root, nodes, nodeId, task, feature, instruction: node.gate!.review!, readOnly: true });
   const sessionsBefore = readEvents(root).events.filter((e) => e.type === "hook_run" && e.check === "session" && e.run === runId).length;
   const snap = ledgerSnapshot(root);
-  const turn = o.adapter.runTurn({ root, prompt: rctx.prompt, sessionId: null, env: o.env, timeoutMs: o.timeoutMs, readOnly: true, jsonSchema: REVIEW_SCHEMA });
+  // 디자인 노드의 리뷰는 Figma를 읽기만 한다 (그린 세션과 다른 세션, 조각 3)
+  const reviewFigma = node.figma ? figmaFor({ ...node, figma: "read" }, o.config) : {};
+  const turn = o.adapter.runTurn({ root, prompt: rctx.prompt, sessionId: null, env: o.env, timeoutMs: o.timeoutMs, readOnly: true, jsonSchema: REVIEW_SCHEMA, ...reviewFigma });
   const intact = ledgerIntact(root, snap);
   let stop: string | undefined;
   if (!intact.allowed) stop = `원장이 리뷰 세션 동안 바뀌었습니다: ${intact.reason}`;
