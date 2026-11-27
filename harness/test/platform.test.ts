@@ -1,6 +1,6 @@
 // 조각 3 2단계: 기능마다 작업 유형, 화면 기능의 플랫폼별 인수 테스트 파일과 관문 실행.
 // 진짜 기기·빌드 대신 가짜 명령(파일에 PASS가 있으면 통과)으로 N22·N26·N28을 돌린다.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -203,6 +203,23 @@ describe("화면 기능의 관문 (조각 3)", () => {
       expect(r.summary).toMatch(/명령 `sleep 3; true tests\/e2e\/web\/S15.spec.ts`이 시간 제한 [\d.]+(초|분)을 넘어 끊었습니다/);
       expect(r.summary).not.toContain("통과해야 하는데 실패했습니다 (종료 코드 124");
     } finally {
+      put("4dd.config.yaml", config());
+    }
+  });
+
+  it("플랫폼 전체를 돌리는 N28은 작업의 시나리오 수가 아니라 전체 플로우 수로 시간을 받는다 (2026-11-27 실제 실행)", () => {
+    put("4dd.config.yaml", config().replace(/web:\n      run_files: "[^\n]*"/, `web:\n      run_files: "sleep 2.2; true"\n      flow_seconds: 1`));
+    put("tests/e2e/web/S90.spec.ts", "// 다른 작업의 플로우\n");
+    put("tests/e2e/web/S91.spec.ts", "// 다른 작업의 플로우\n");
+    try {
+      const r = runGate({ root, config: loadConfig(root), nodes, nodeId: "N28", task: "T9", runId: "NR1", timeoutMs: 300 });
+      const web = r.runs.find((x) => x.command.startsWith("sleep 2.2"));
+      // 작업 T9의 시나리오는 하나(0.3 + 1초)라 그것으로 재면 끊기지만, 전체 세 파일(0.3 + 3초)로 재면 끝난다
+      expect(web).toMatchObject({ result: "pass" });
+      expect(web?.command).toContain("tests/e2e/web/S91.spec.ts");
+    } finally {
+      rmSync(join(root, "tests/e2e/web/S90.spec.ts"));
+      rmSync(join(root, "tests/e2e/web/S91.spec.ts"));
       put("4dd.config.yaml", config());
     }
   });

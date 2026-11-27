@@ -567,9 +567,10 @@ export function runGate(ctx: GateContext): GateOutcome {
     const command = expand(step.template, ctx.config, step.files, step.platform, ctx.root);
     // 앱 빌드({e2e.build})는 기대(실패해야 함)와 상관없이 성공해야 한다. 빌드가 깨지면 그 플랫폼의 테스트를 돌리지 않는다
     const isBuild = step.template.includes("{e2e.build}");
-    // 플로우 파일을 받는 플랫폼 명령은 파일 수만큼 시간을 더 준다
-    const stepTimeout =
-      step.platform && !isBuild && step.files.length ? timeoutMs + step.files.length * (ctx.config.commands.e2e?.[step.platform]?.flow_seconds ?? FLOW_SECONDS[step.platform]) * 1000 : timeoutMs;
+    // 플로우 파일을 받는 플랫폼 명령은 돌리는 파일 수만큼 시간을 더 준다. 플랫폼 전체를 돌리는 명령(N28)은 전체 파일 수로 센다
+    // (2026-11-27 실제 실행: 시나리오 하나짜리 작업의 N28이 플로우 45개를 13분 안에 돌려야 해서 끊김)
+    const flowCount = !step.platform || isBuild ? 0 : step.template.includes("{platform.all_files}") ? allE2eFiles(ctx.root, step.platform).length : step.files.length;
+    const stepTimeout = flowCount ? timeoutMs + flowCount * (ctx.config.commands.e2e?.[step.platform!]?.flow_seconds ?? FLOW_SECONDS[step.platform!]) * 1000 : timeoutMs;
     let r = runCommand(ctx.root, command, stepTimeout);
     const envProblem = r.timedOut || r.exit === 126 || r.exit === 127;
     const met = (exit: number) => (isBuild ? exit === 0 : reentry || (gate.expect === "pass" ? exit === 0 : exit !== 0));
