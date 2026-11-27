@@ -106,6 +106,30 @@ describe("화면 기능의 관문 (조각 3)", () => {
     expect(gate("N28").runs.map((x) => x.command)).toEqual(["true", "true"]);
   });
 
+  it("N24: 화면 작업이면 단위 테스트에 더해 웹 플로우만 돌린다 (2026-11-27 오너 결정)", () => {
+    put("tests/e2e/android/S15.yaml", "appId: com.fourdd.loginapp\n---\n- launchApp\n# PASS\n");
+    put("tests/e2e/web/S15.spec.ts", 'import { test } from "@playwright/test";\ntest("S15", async () => {}); // PASS\n');
+    const r = gate("N24");
+    expect(r.passed, r.summary).toBe(true);
+    const cmds = r.runs.map((x) => x.command);
+    expect(cmds[0]).toBe("true"); // 단위 테스트
+    expect(cmds.some((c) => c.includes("tests/e2e/web/S15.spec.ts"))).toBe(true);
+    expect(cmds.some((c) => c.includes("tests/e2e/android/"))).toBe(false);
+    // 웹 플로우가 실패하면 N24도 실패 (화면에 잇지 않음)
+    put("tests/e2e/web/S15.spec.ts", 'import { test } from "@playwright/test";\ntest("S15", async () => {});\n');
+    expect(gate("N24").passed).toBe(false);
+  });
+
+  it("N24: 시나리오가 없는 작업이면 플로우는 빼고 단위 테스트만 돈다 (관문을 건너뛰지 않음)", () => {
+    put("specs/login-screen/tasks.md", "# 작업 목록: 로그인 화면 (N14)\n\n- [ ] T8 서버 손보기 (R10)\n- [ ] T9 로그인 화면 (R10)\n");
+    try {
+      const r = runGate({ root, config: loadConfig(root), nodes, nodeId: "N24", task: "T8", runId: "NR1" });
+      expect(r.runs.map((x) => x.command)).toEqual(["true"]);
+    } finally {
+      put("specs/login-screen/tasks.md", "# 작업 목록: 로그인 화면 (N14)\n\n- [ ] T9 로그인 화면 (R10)\n");
+    }
+  });
+
   it("N22: 플로우가 있고 아직 실패하면 통과, 원장에 플랫폼별 실행이 남는다", () => {
     put("tests/e2e/android/S15.yaml", "appId: com.fourdd.loginapp\n---\n- launchApp\n- assertVisible: \"환영\"\n");
     put("tests/e2e/web/S15.spec.ts", 'import { test } from "@playwright/test";\ntest("S15", async () => {});\n');

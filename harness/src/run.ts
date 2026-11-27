@@ -279,7 +279,7 @@ export function runLoop(opts: RunOptions): RunOutcome {
     if (!unit) return finish("error", `작업이나 기능 없이 ${nodeId}에 왔습니다`);
 
     // 화면 작업이 Android에서 플로우를 돌리기 전에 가상 기기를 띄운다 (이미 떠 있으면 그대로)
-    if (task && !deviceStarted && node.gate?.platform_run && taskPlatforms(root, config, task).includes("android")) {
+    if (task && !deviceStarted && node.gate?.platform_run && (!node.gate.platforms || node.gate.platforms.includes("android")) && taskPlatforms(root, config, task).includes("android")) {
       try {
         const up = deviceUp(root, deviceSettings(config), H);
         deviceStarted = !up.already;

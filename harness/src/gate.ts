@@ -435,7 +435,7 @@ export function runGate(ctx: GateContext): GateOutcome {
   const timeoutMs = ctx.timeoutMs ?? GATE_TIMEOUT_MS;
   const commands = gate.run === undefined ? [] : Array.isArray(gate.run) ? gate.run : [gate.run];
   // 화면 기능의 작업이면 시나리오 파일을 받는 명령 대신 플랫폼마다 platform_run을 돌린다 (조각 3)
-  const platforms = gate.platform_run ? taskPlatforms(ctx.root, ctx.config, ctx.task) : [];
+  const platforms = gate.platform_run ? taskPlatforms(ctx.root, ctx.config, ctx.task).filter((p) => !gate.platforms || gate.platforms.includes(p)) : [];
   const base = ctx.task ? taskScenarios(ctx.root, ctx.task) : { ids: [], files: [] };
   const perPlatform = platforms.map((p) => ({ platform: p, ...platformScenarios(ctx.root, ctx.task!, p) }));
   // 검사(시나리오마다 테스트가 있음)가 보는 목록: 화면 기능이면 플랫폼마다의 플로우 파일
@@ -457,7 +457,10 @@ export function runGate(ctx: GateContext): GateOutcome {
     : commands.map((template) => ({ template, files: base.files }));
 
   if (planned.some((c) => c.template.includes("{task.scenario_files}")) && base.ids.length === 0) {
-    return { node: ctx.nodeId, passed: true, runs: [], checks: [], summary: `${ctx.nodeId}: 이 작업에서 통과시킬 시나리오가 없어 관문을 건너뜁니다` };
+    // 시나리오를 받는 명령만 뺀다. 남는 명령(예: N24의 단위 테스트)이 없으면 관문을 건너뛴다
+    const rest = planned.filter((c) => !c.template.includes("{task.scenario_files}") && !(c.platform && c.template.includes("{e2e.build}")));
+    if (!rest.length) return { node: ctx.nodeId, passed: true, runs: [], checks: [], summary: `${ctx.nodeId}: 이 작업에서 통과시킬 시나리오가 없어 관문을 건너뜁니다` };
+    planned.splice(0, planned.length, ...rest);
   }
 
   // 구현이 이미 있는 작업으로 다시 돌아왔으면(test_flaky를 고치러 오거나 스펙을 고친 뒤) "처음엔 실패"를 요구할 수 없다.

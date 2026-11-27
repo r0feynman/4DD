@@ -244,6 +244,8 @@ N24:
   writes: ["src/**", "mobile/**", "!mobile/theme.ts", "!mobile/assets/fonts/**", "!mobile/app.json", "!mobile/metro.config.js"]   # 앱 코드는 mobile/ 어디든 설계대로. 부품 코드(ui/)는 플랫폼에서 Figma대로 그려지게 고칠 수 있음(2026-11-27 오너 결정). 값(theme.ts), 글꼴, 앱 ID, 번들러 설정은 고치지 않음 (조각 3, G10)
   gate:
     run: "{commands.unit}"
+    platform_run: ["{e2e.build}", "{e2e.run_files} {task.scenario_files}"]
+    platforms: [web]      # 화면 작업이면 빠른 웹 플로우로 화면까지 이었는지 바로 확인 (2026-11-27 오너 결정: 단위 테스트만 보고 넘어가 N26에서 돌아오던 왕복을 줄임)
     expect: pass
 
 N25:

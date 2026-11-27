@@ -85,6 +85,8 @@ const GateSchema = z
      * {e2e.build}, {e2e.run_files}는 그 플랫폼의 commands.e2e, {task.scenario_files}는 그 플랫폼의 플로우 파일, {platform.all_files}는 그 플랫폼의 모든 플로우
      */
     platform_run: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
+    /** platform_run을 이 플랫폼에서만 돌린다 (조각 3: N24는 빠른 웹 플로우로 화면까지 이었는지 확인, 2026-11-27 오너 결정) */
+    platforms: z.array(z.enum(["android", "web"])).min(1).optional(),
     /** 기계 검사를 통과한 뒤 리뷰 세션(L1)이 판정한다. 값은 리뷰 지시문 경로 (조각 2: N13, N14) */
     review: z.string().min(1).optional(),
   })
