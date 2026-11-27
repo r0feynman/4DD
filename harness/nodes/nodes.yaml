@@ -71,9 +71,9 @@ N00F:
   figma: write
   instruction: instructions/N00F.md
   reads: [story, spec, design_system, src_map, last_gate, hint]
-  writes: ["design/figma.json", "design/tokens.json", "design/code-connect.json", "mobile/theme.ts", "mobile/ui/**", "mobile/assets/fonts/**", "mobile/package.json", "mobile/package-lock.json", "mobile/App.tsx"]
+  writes: ["design/figma.json", "design/tokens.json", "design/code-connect.json", "mobile/theme.ts", "mobile/ui/**", "mobile/assets/fonts/**", "mobile/package.json", "mobile/package-lock.json", "mobile/App.tsx", "mobile/metro.config.js"]
   gate:
-    checks: [tokens_match, code_connect_complete]
+    checks: [tokens_match, code_connect_complete, app_builds]   # 디자인 시스템을 넣은 뒤에도 앱이 빌드되는지 (웹이 빠름)
     review: instructions/N00F.review.md   # 리뷰 세션(L1): Figma 변수·컴포넌트와 파일이 같은지
 
 N03W:

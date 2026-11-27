@@ -49,6 +49,8 @@ export interface GateRunResult {
   result: "pass" | "fail";
   flakyRerun: boolean;
   log: string;
+  /** 앱 빌드 명령 ({e2e.build}) */
+  build?: boolean;
 }
 
 export interface GateCheckResult {
@@ -180,7 +182,7 @@ function record(ctx: GateContext, command: string, exit: number, result: "pass" 
     ...(tests ? { tests } : {}),
     ...extra,
   });
-  return { id, command, exit, result, flakyRerun, log };
+  return { id, command, exit, result, flakyRerun, log, ...(extra.build ? { build: true } : {}) };
 }
 
 /**
@@ -385,6 +387,18 @@ function planCheck(name: GateCheck, ctx: GateContext, events: LedgerEvent[]): Ga
       return f ? { name, ...checkStates(root, f) } : { name, ok: false, detail: "기능이 정해지지 않았습니다" };
     case "frames_complete":
       return f ? { name, ...checkFrames(root, f) } : { name, ok: false, detail: "기능이 정해지지 않았습니다" };
+    case "app_builds": {
+      // N00F: 디자인 시스템을 앱에 넣은 뒤에도 앱이 빌드되는가 (2026-11-27 실제 실행: 테마가 mobile/ 밖의 토큰을 가져다 써 번들이 깨졌는데 Stage 2에서야 드러남)
+      const e2e = ctx.config.commands.e2e ?? {};
+      const platform = (["web", "android"] as const).find((p) => e2e[p]?.build);
+      if (!platform) return { name, ok: true, detail: "앱 빌드 명령(commands.e2e.<플랫폼>.build)이 없어 건너뜁니다" };
+      const command = e2e[platform]!.build!;
+      const r = runCommand(root, command, ctx.timeoutMs ?? GATE_TIMEOUT_MS);
+      const run = record(ctx, command, r.exit, r.exit === 0 ? "pass" : "fail", false, r.output, platform, { seconds: r.seconds, build: true });
+      return r.exit === 0
+        ? { name, ok: true, detail: `${platform} 앱이 빌드됩니다 (${r.seconds}초)` }
+        : { name, ok: false, detail: `${platform} 앱 빌드 \`${command}\`가 깨졌습니다 (종료 코드 ${r.exit}, 출력 ${run.log}). 디자인 시스템(테마, 부품, 글꼴)을 넣은 뒤에도 앱이 빌드되어야 합니다` };
+    }
     default:
       return { name, ok: false, detail: `알 수 없는 검사입니다: ${name}` };
   }
@@ -432,6 +446,8 @@ export function runGate(ctx: GateContext): GateOutcome {
   const runs: GateRunResult[] = [];
   let cause: Cause | undefined;
   const brokenBuild = new Set<Platform>();
+  // 처음엔 실패해야 하는 노드(N22)는 앱 코드를 고칠 수 없다. 그때 빌드가 깨져 있으면 다시 해도 소용없으므로 사람에게 넘긴다 (2026-11-27 실제 실행)
+  let buildBlocked = false;
   for (const step of planned) {
     if (step.platform && brokenBuild.has(step.platform)) continue;
     const command = expand(step.template, ctx.config, step.files, step.platform, ctx.root);
@@ -448,6 +464,10 @@ export function runGate(ctx: GateContext): GateOutcome {
     runs.push(record(ctx, command, r.exit, met(r.exit) ? "pass" : "fail", false, r.output, step.platform, { seconds: r.seconds, ...(isBuild ? { build: true } : {}) }));
     if (isBuild && r.exit !== 0) {
       if (step.platform) brokenBuild.add(step.platform);
+      if (gate.expect === "fail") {
+        buildBlocked = true;
+        cause = "env";
+      }
       continue;
     }
     if (!met(r.exit) && gate.flaky_rerun && gate.expect === "pass") {
@@ -479,11 +499,16 @@ export function runGate(ctx: GateContext): GateOutcome {
   for (const r of runs) {
     if (r.result === "pass") continue;
     if (r.flakyRerun && cause === "test_flaky") continue;
+    if (r.build) {
+      lines.push(`앱 빌드 \`${r.command}\`가 깨졌습니다 (종료 코드 ${r.exit}, 출력 ${r.log}). 이 플랫폼의 플로우는 돌리지 않았습니다`);
+      continue;
+    }
     const want = gate.expect === "pass" ? "통과해야 하는데 실패했습니다" : "실패해야 하는데 통과했습니다 (아직 구현이 없는데 통과하면 테스트가 동작을 확인하지 않는 것입니다)";
     lines.push(`명령 \`${r.command}\`이 ${want} (종료 코드 ${r.exit}, 출력 ${r.log})`);
   }
   if (cause === "test_flaky") lines.push("같은 코드로 다시 돌렸더니 결과가 바뀌었습니다: 테스트가 불안정합니다 (test_flaky)");
-  if (cause === "env") lines.push("명령을 실행하지 못했거나 시간 제한을 넘었습니다: 실행 환경 문제입니다 (env)");
+  if (buildBlocked) lines.push(`${ctx.nodeId}는 앱 코드를 고칠 수 없어, 깨진 빌드를 사람에게 넘깁니다 (env: 빌드 설정이나 앞 작업을 봐야 함)`);
+  else if (cause === "env") lines.push("명령을 실행하지 못했거나 시간 제한을 넘었습니다: 실행 환경 문제입니다 (env)");
   for (const c of checks) if (!c.ok) lines.push(c.detail);
   const summary = passed ? `${ctx.nodeId} 관문 통과` : `${ctx.nodeId} 관문 실패\n- ${lines.join("\n- ")}`;
   mkdirSync(join(ctx.root, GATE_DIR), { recursive: true });

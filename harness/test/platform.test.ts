@@ -133,7 +133,36 @@ describe("화면 기능의 관문 (조각 3)", () => {
     expect(runs.some((c) => c === "false")).toBe(true);
     expect(runs.filter((c) => c.includes("tests/e2e/android/")).length).toBe(0);
     expect(runs.filter((c) => c.includes("tests/e2e/web/")).length).toBe(1);
+    expect(r.cause).toBeUndefined(); // 구현 뒤 깨진 빌드는 원인 분류가 정함
+    expect(r.summary).toContain("앱 빌드 `false`가 깨졌습니다");
     put("4dd.config.yaml", config());
+  });
+
+  it("N22: 앱 코드를 고칠 수 없는 노드에서 빌드가 깨져 있으면 다시 하지 않고 사람에게 (env)", () => {
+    put("4dd.config.yaml", config("false"));
+    try {
+      const r = gate("N22");
+      expect(r.passed).toBe(false);
+      expect(r.cause).toBe("env");
+      expect(r.summary).toContain("앱 빌드 `false`가 깨졌습니다");
+      expect(r.summary).toContain("N22는 앱 코드를 고칠 수 없어");
+      expect(r.summary).not.toContain("명령 `false`이"); // 빌드를 「실패해야 하는데 통과」로 적지 않는다
+    } finally {
+      put("4dd.config.yaml", config());
+    }
+  });
+
+  it("N00F: 디자인 시스템을 넣은 뒤에도 앱이 빌드되어야 통과 (웹 빌드가 있으면 웹으로)", () => {
+    const n00f = () => runGate({ root, config: loadConfig(root), nodes, nodeId: "N00F", task: null, feature: "login-screen", runId: "NR1" }).checks.find((c) => c.name === "app_builds")!;
+    put("4dd.config.yaml", config("false"));
+    try {
+      expect(n00f()).toMatchObject({ ok: false });
+      expect(n00f().detail).toContain("android 앱 빌드 `false`가 깨졌습니다");
+      put("4dd.config.yaml", config("true"));
+      expect(n00f()).toMatchObject({ ok: true });
+    } finally {
+      put("4dd.config.yaml", config());
+    }
   });
 
   it("N28: 단위·인수 테스트에 더해 플랫폼마다 플로우 전체를 돌린다", () => {
